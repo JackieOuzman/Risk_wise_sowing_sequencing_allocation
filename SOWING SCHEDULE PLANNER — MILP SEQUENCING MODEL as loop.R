@@ -14,10 +14,12 @@ library(ROI.plugin.glpk)
 # SECTION 1 — USER INPUTS
 # ===============================================================================
 file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
-file_name <- "EP_yld_long_format.xlsx"
+#file_name <- "EP_yld_long_format.xlsx"
+file_name <- "EP_yld_long_format_MOCK.xlsx"
 
 # --- Simulation name (used to group all output files together) -------------
 simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
+simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
 
 site_name <- "Lock, Eyre Peninsula"
 cropping_area_ha <- 1000
@@ -67,6 +69,12 @@ n_weeks <- length(weeks)
 
 yield_long <- read_excel(paste0(file_path, file_name), sheet = "Yield data long format")
 
+cat("Reading yield file:", paste0(file_path, file_name), "\n")
+cat("Check — Wheat Red D1-3, week 1 yield:",
+    yield_long %>% filter(crop == "Wheat", frost_zone == "Red", decile_band == "D1-3",
+                          `week of sowing program window` == 1) %>% pull(yield_t_per_ha),
+    "\n")
+
 cat("Setup complete. n_crops =", n_crops, "| n_zones =", n_zones, "| n_weeks =", n_weeks, "\n")
 
 
@@ -105,6 +113,12 @@ for (target_decile in deciles_to_run) {
   for (ci in 1:n_crops) for (zi in 1:n_zones) for (wi in 1:n_weeks) {
     yield_vec[paste(ci, zi, wi, sep = "_")] <- yield_array[ci, zi, wi]
   }
+  
+  lupins_idx <- which(crops == "Lupins")
+  red_idx    <- which(zones == "Red")
+  week6_idx  <- which(weeks == 6)
+  cat(target_decile, "— yield_vec Lupins-Red-week6:",
+      yield_vec[paste(lupins_idx, red_idx, week6_idx, sep = "_")], "\n")
   
   # --- Build a FRESH model -------------------------------------------------
   model <- MILPModel() %>%
