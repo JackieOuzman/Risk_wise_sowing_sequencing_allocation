@@ -107,6 +107,10 @@ for (target_decile in deciles_to_run) {
     yield_array[ci, zi, wi] <- yield_matrix[paste(crops[ci], zones[zi]), as.character(weeks[wi])]
   }
   
+  get_yield <- function(c, z, w) {
+    yield_array[cbind(c, z, w)]
+  }
+  
   if (sum(is.na(yield_array)) > 0) stop(paste("Missing yield lookups for", target_decile))
   
   yield_vec <- c()
@@ -144,7 +148,7 @@ for (target_decile in deciles_to_run) {
   }
   
   model <- model %>%
-    set_objective(sum_expr(yield_vec[paste(c, z, w, sep = "_")] * ha[c, z, w],
+    set_objective(sum_expr(yield_array[cbind(c, z, w)] * ha[c, z, w],
                            c = 1:n_crops, z = 1:n_zones, w = 1:n_weeks), sense = "max")
   
   # --- Solve --------------------------------------------------------------
@@ -158,6 +162,12 @@ for (target_decile in deciles_to_run) {
   ha_solution$crop <- crops[ha_solution$c]
   ha_solution$zone <- zones[ha_solution$z]
   ha_solution$week <- weeks[ha_solution$w]
+  
+  manual_obj <- sum(sapply(1:nrow(ha_solution), function(i) {
+    get_yield(ha_solution$c[i], ha_solution$z[i], ha_solution$w[i]) * ha_solution$value[i]
+  }))
+  cat(target_decile, "— manual objective check:", manual_obj,
+      "| solver-reported objective:", result$objective_value, "\n")
   
   sowing_plan <- ha_solution[ha_solution$value > 0, c("crop", "zone", "week", "value")]
   sowing_plan <- sowing_plan[order(sowing_plan$crop, sowing_plan$week), ]
