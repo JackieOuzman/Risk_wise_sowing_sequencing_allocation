@@ -208,8 +208,9 @@ for (target_decile in deciles_to_run) {
 cat("\n=== DECILE COMPARISON ===\n")
 for (d in names(all_results)) cat(d, ":", all_results[[d]]$objective, "\n")
 
-run_filename <- paste0(simulation_name, "_run_summary_", format(Sys.time(), "%Y%m%d_%H%M"), ".csv")
+run_filename <- paste0(simulation_name, "_run_summary.csv")
 write.csv(run_summary, paste0(file_path, run_filename), row.names = FALSE)
 
 print(run_summary)
 cat("\nSaved:", run_filename, "\n")
+
