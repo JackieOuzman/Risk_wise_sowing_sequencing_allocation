@@ -68,15 +68,16 @@ library(ggplot2)
 # ===========================================================================
 file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
 file_name <- "EP_yld_long_format.xlsx"
+#file_name <- "EP_yld_long_format_MOCK.xlsx"
 # ===========================================================================
 
 # ===========================================================================
 # USER INPUTS — edit these directly, no longer reading from the Excel Inputs tab
 # ===========================================================================
 # --- Yield decile to use ------------------------------------------------
-target_decile <- "D1-3"    # matches your Excel D4-6/average-season model; change here to test other deciles later
+#target_decile <- "D1-3"    # matches your Excel D4-6/average-season model; change here to test other deciles later
 #target_decile <- "D4-6"
-#target_decile <- "D7-9"
+target_decile <- "D7-9"
 # --- Farm settings -----------------------------------------------------
 site_name <- "Lock, Eyre Peninsula"
 cropping_area_ha <- 1000            # <- total cropping area, ha (fill this in)
@@ -395,14 +396,19 @@ print(sowing_plan)
 arrange(sowing_plan,week)
 
 # ===========================================================================
+# OUTPUT FOLDER + RUN LABEL — used to name every CSV from this run
+# ===========================================================================
+check_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/model check/"
+scenario_name <- tools::file_path_sans_ext(file_name)   # "EP_yld_long_format" or "EP_yld_long_format_MOCK"
+run_label <- paste0(scenario_name, "_", target_decile)  # e.g. "EP_yld_long_format_MOCK_D1-3"
+
+# ===========================================================================
 # Results and program etc
 # ===========================================================================
 ###1. Wide weekly table
-# Attach real calendar dates to the solved plan
 sowing_plan_dated <- sowing_plan %>%
   left_join(active_calendar[, c("week", "date")], by = "week")
 
-# --- Weekly table: one row per week, one column per zone --------------------
 zone_summary <- sowing_plan_dated %>%
   group_by(week, date, zone) %>%
   summarise(entry = paste0(crop, ": ", value, " ha", collapse = " + "), .groups = "drop")
@@ -412,16 +418,13 @@ weekly_table <- zone_summary %>%
   arrange(week)
 
 print(weekly_table)
-
+write.csv(weekly_table, paste0(check_path, run_label, "_weekly_table.csv"), row.names = FALSE)
 
 #2. Balance checks — farm total, per-crop targets, weekly capacity
-
-# --- Farm-wide total sown vs cropping area ----------------------------------
 total_sown <- sum(sowing_plan$value)
 cat("Site:", site_name, "| Decile:", target_decile,
     "| Total ha sown:", total_sown, "/ Cropping area:", cropping_area_ha, "\n")
 
-# --- Per-crop totals vs targets ---------------------------------------------
 crop_check <- sowing_plan %>%
   group_by(crop) %>%
   summarise(ha_sown = sum(value), .groups = "drop") %>%
@@ -429,6 +432,7 @@ crop_check <- sowing_plan %>%
          diff = ha_sown - target_ha)
 
 print(crop_check)
+write.csv(crop_check, paste0(check_path, run_label, "_crop_check.csv"), row.names = FALSE)
 
 # --- Weekly capacity check ---------------------------------------------------
 weekly_totals <- sowing_plan_dated %>%
@@ -438,104 +442,15 @@ weekly_totals <- sowing_plan_dated %>%
          capacity_slack = capacity_ha - total_ha_sown)
 
 print(weekly_totals)
+write.csv(weekly_totals, paste0(check_path, run_label, "_weekly_capacity.csv"), row.names = FALSE)
 
-# --- Weekly totals, to add as an extra column on the chart -----------------
-weekly_totals <- sowing_plan_dated %>%
-  group_by(week) %>%
-  summarise(ha = sum(value), .groups = "drop")
-
-crop_priority <- c("Wheat", "Barley", "Canola")
-crop_order <- c(intersect(crop_priority, crops), setdiff(crops, crop_priority))
-
-n_crop_cols <- length(crop_order)
-weekly_totals$x_pos <- n_crop_cols + 1   # sits one column to the right of the last crop
-
-
-# --- Crop totals (across all weeks), for the bottom row --------------------
-crop_totals <- sowing_plan_dated %>%
-  group_by(crop) %>%
-  summarise(ha = sum(value), .groups = "drop")
-
-crop_totals$crop <- factor(crop_totals$crop, levels = crop_order)
-crop_totals$x_pos <- as.numeric(crop_totals$crop)
-crop_totals$y_pos <- n_weeks + 1   # sits one row below the last week
-
-
-# --- Grand total (bottom-right corner: farm total ha) -----------------------
-grand_total <- data.frame(
-  x_pos = n_crop_cols + 1,
-  y_pos = n_weeks + 1,
-  ha = sum(sowing_plan_dated$value)
+# --- One-row run summary: objective + totals, for quick cross-run comparison ---
+run_summary_row <- data.frame(
+  scenario = scenario_name,
+  decile = target_decile,
+  objective_expected_yield = result$objective_value,
+  total_ha_sown = total_sown
 )
+print(run_summary_row)
+write.csv(run_summary_row, paste0(check_path, run_label, "_run_summary.csv"), row.names = FALSE)
 
-
-# ===========================================================================
-# Gantt-style chart, with Total column AND Total row added
-# ===========================================================================
-gantt_data <- sowing_plan_dated %>%
-  group_by(crop, zone, week) %>%
-  summarise(ha = sum(value), .groups = "drop")
-
-gantt_data$crop <- factor(gantt_data$crop, levels = crop_order)
-gantt_data$crop_num <- as.numeric(gantt_data$crop)
-
-gantt_data <- gantt_data %>%
-  group_by(crop, week) %>%
-  mutate(n_seg = n(),
-         seg_index = row_number(),
-         seg_width = 0.8 / n_seg,
-         x_pos = crop_num - 0.4 + seg_width * (seg_index - 0.5)) %>%
-  ungroup()
-
-p <- ggplot() +
-  geom_tile(data = gantt_data, aes(x = x_pos, y = week, fill = zone, width = seg_width),
-            color = "white", linewidth = 0.4, height = 0.8) +
-  geom_text(data = gantt_data, aes(x = x_pos, y = week, label = sprintf("%.0f", ha)),
-            color = "white", fontface = "bold", size = 3) +
-  geom_tile(data = weekly_totals, aes(x = x_pos, y = week),
-            fill = "grey70", color = "white", linewidth = 0.4, width = 0.8, height = 0.8) +
-  geom_text(data = weekly_totals, aes(x = x_pos, y = week, label = sprintf("%.0f", ha)),
-            color = "white", fontface = "bold", size = 3) +
-  geom_tile(data = crop_totals, aes(x = x_pos, y = y_pos),
-            fill = "grey70", color = "white", linewidth = 0.4, width = 0.8, height = 0.8) +
-  geom_text(data = crop_totals, aes(x = x_pos, y = y_pos, label = sprintf("%.0f", ha)),
-            color = "white", fontface = "bold", size = 3) +
-  geom_tile(data = grand_total, aes(x = x_pos, y = y_pos),
-            fill = "grey70", color = "white", linewidth = 0.4, width = 0.8, height = 0.8) +
-  geom_text(data = grand_total, aes(x = x_pos, y = y_pos, label = sprintf("%.0f", ha)),
-            color = "white", fontface = "bold", size = 3) +
-  scale_fill_manual(values = c(Green = "#2E7D32", Amber = "#F9A825", Red = "#C62828")) +
-  scale_x_continuous(breaks = 1:(n_crop_cols + 1), labels = c(crop_order, "Total"),
-                     position = "top", expand = expansion(add = 0.5)) +
-  scale_y_reverse(breaks = 1:(n_weeks + 1), labels = c(as.character(1:n_weeks), "Total")) +
-  labs(title = paste0("Sowing Program — ", site_name, " (", target_decile, ")"),
-       x = NULL, y = "Week", fill = "Zone") +
-  theme_minimal(base_size = 12) +
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(face = "bold", size = 12))
-
-print(p)
-
-# --- Solver output -----------------------------------------------------
-file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
-# --- Save the D1-3 results before switching decile --------------------------
-# sowing_plan_d13 <- sowing_plan_dated
-# result_d13 <- result
-# objective_d13 <- result$objective_value
-# write.csv(sowing_plan_dated, paste0(file_path, "sowing_plan_D1-3.csv"), row.names = FALSE)
-# ggsave(paste0(file_path, "sowing_gantt_D1-3.png"), p, width = 9, height = 6, dpi = 300)
-
-
-# # --- Save the D4-6 results before switching decile --------------------------
-# sowing_plan_d46 <- sowing_plan_dated
-# result_d46 <- result
-# objective_d46 <- result$objective_value
-# write.csv(sowing_plan_dated, paste0(file_path, "sowing_plan_D4-6.csv"), row.names = FALSE)
-# ggsave(paste0(file_path, "sowing_gantt_D4-6.png"), p, width = 9, height = 6, dpi = 300)
-
-# # --- Save the D7-9 results before switching decile --------------------------
-# sowing_plan_d79 <- sowing_plan_dated
-# result_d79 <- result
-# objective_d79 <- result$objective_value
-# write.csv(sowing_plan_dated, paste0(file_path, "sowing_plan_D7-9.csv"), row.names = FALSE)
-# ggsave(paste0(file_path, "sowing_gantt_D7-9.png"), p, width = 9, height = 6, dpi = 300)
