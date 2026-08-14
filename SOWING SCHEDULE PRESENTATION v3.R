@@ -16,8 +16,8 @@ library(gridExtra)
 # SECTION 2 — LOAD DATA
 # ===============================================================================
 file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
-#simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
-simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
+simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
+#simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
 deciles <- c("D1-3", "D4-6", "D7-9")
 
 # --- Load the run summary (inputs + outcomes for all three deciles) --------

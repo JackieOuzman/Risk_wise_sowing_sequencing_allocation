@@ -8,6 +8,7 @@ library(ggplot2)
 library(ompr)
 library(ompr.roi)
 library(ROI.plugin.glpk)
+library(rlang)
 
 
 # ===============================================================================
@@ -18,7 +19,7 @@ file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
 file_name <- "EP_yld_long_format_MOCK.xlsx"
 
 # --- Simulation name (used to group all output files together) -------------
-simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
+#simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
 simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
 
 site_name <- "Lock, Eyre Peninsula"
@@ -141,15 +142,33 @@ for (target_decile in deciles_to_run) {
                    c = 1:n_crops) %>%
     add_constraint(sum_expr(ha[c, z, w], c = 1:n_crops, w = 1:n_weeks) <= zone_ha[z], z = 1:n_zones)
   
+  
+  
+  # --- Check 5: a crop can only START if every OTHER crop that's still in
+  #     play has already reached its full target BY THE END of this week
+  #     (still allows one shared handover week where the outgoing crop finishes) --
+  model <- model %>%
+    add_constraint(
+      sum_expr(ha[c1, z, ww], z = 1:n_zones, ww = 1:w) >=
+        crop_targets_final[c1] * (start[c2, w] + sum_expr(start[c1, www], www = 1:w) - 1),
+      c1 = 1:n_crops, c2 = 1:n_crops, w = 1:n_weeks, c1 != c2
+    )
+ 
+  
   if (!is.na(red_zone_excluded_crop)) {
     model <- model %>%
       add_constraint(ha[c, z, w] == 0, c = 1:n_crops, z = 1:n_zones, w = 1:n_weeks,
                      zones[z] == "Red", crops[c] == red_zone_excluded_crop)
   }
   
-  model <- model %>%
-    set_objective(sum_expr(yield_array[cbind(c, z, w)] * ha[c, z, w],
-                           c = 1:n_crops, z = 1:n_zones, w = 1:n_weeks), sense = "max")
+  terms_expr <- list()
+  for (ci in 1:n_crops) for (zi in 1:n_zones) for (wi in 1:n_weeks) {
+    coef <- yield_array[ci, zi, wi]
+    terms_expr[[length(terms_expr) + 1]] <- expr(!!coef * ha[!!ci, !!zi, !!wi])
+  }
+  obj_expr <- reduce(terms_expr, function(a, b) expr(!!a + !!b))
+  
+  model <- inject(set_objective(model, !!obj_expr, sense = "max"))
   
   # --- Solve --------------------------------------------------------------
   result <- solve_model(model, with_ROI(solver = "glpk", verbose = FALSE))
