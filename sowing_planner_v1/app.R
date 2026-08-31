@@ -95,8 +95,8 @@ ui <- navbarPage(
     
     h3("Files"),
     selectInput("yield_file_choice", "Yield input file",
-                choices = c("Baseline" = "files/EP_yld_long_format.xlsx",
-                            "Mock/Test scenario" = "files/EP_yld_long_format_MOCK.xlsx",
+                choices = c("Baseline" = "EP_yld_long_format.xlsx",
+                            "Mock/Test scenario" = "EP_yld_long_format_MOCK.xlsx",
                             "Upload my own file..." = "custom")),
     conditionalPanel(
       condition = "input.yield_file_choice == 'custom'",
@@ -115,6 +115,8 @@ ui <- navbarPage(
   tabPanel(
     "Report",
     h2("Report"),
+    downloadButton("download_report", "Download report + data (.zip)"),
+    br(), br(),
     plotOutput("report_plot", height = "900px")
   ),
   
@@ -307,6 +309,20 @@ server <- function(input, output, session) {
   updateActionButton(session, "run_btn", label = "Run simulation")
   
   })
+  
+  output$download_report <- downloadHandler(
+    filename = function() {
+      paste0(model_result()$run_summary$simulation_name[1], "_report_bundle.zip")
+    },
+    content = function(file) {
+      res <- model_result()
+      req(res$status == "success")
+      
+      files_to_zip <- list.files(res$output_folder, full.names = TRUE)
+      
+      zip::zip(zipfile = file, files = basename(files_to_zip), root = res$output_folder)
+    }
+  )
   
 }
 
