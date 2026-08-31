@@ -107,7 +107,11 @@ ui <- navbarPage(
   
     textOutput("output_folder_display"),
     
-    verbatimTextOutput("setup_check")
+    verbatimTextOutput("setup_check"),
+    
+    hr(),
+    actionButton("run_btn", "Run simulation", class = "btn-primary btn-lg"),
+    verbatimTextOutput("run_check")
   ),
   
   # --- TAB 2: REPORT -----------------------------------------------------------
@@ -229,4 +233,44 @@ server <- function(input, output, session) {
 # ===============================================================================
 # RUN THE APP
 # ===============================================================================
+observeEvent(input$run_btn, {
+  
+  yield_file_path <- if (input$yield_file_choice == "default") {
+    "../files/EP_yld_long_format.xlsx"
+  } else {
+    input$yield_file_custom
+  }
+  
+  red_zone_final <- if (input$red_zone_excluded_crop == "None") {
+    NA
+  } else {
+    input$red_zone_excluded_crop
+  }
+  
+  params <- list(
+    site_name = input$site_name,
+    simulation_name = input$simulation_name,
+    cropping_area_ha = input$cropping_area_ha,
+    daily_capacity_ha = input$daily_capacity_ha,
+    zone_pct = c(Green = input$zone_green_pct / 100,
+                 Amber = input$zone_amber_pct / 100,
+                 Red = input$zone_red_pct / 100),
+    crop_targets = c(Wheat = input$wheat_ha, Barley = input$barley_ha, Canola = input$canola_ha),
+    legume_targets = setNames(c(input$legume1_ha, input$legume2_ha),
+                              c(input$legume1_crop, input$legume2_crop)),
+    red_zone_excluded_crop = red_zone_final,
+    program_start_date = input$program_start_date,
+    price_scenario = input$price_scenario,
+    optimise_for = input$optimise_for,
+    yield_file_path = yield_file_path,
+    output_folder = file.path(input$output_base_folder, input$simulation_name)
+  )
+  
+  output$run_check <- renderText({
+    paste(capture.output(str(params)), collapse = "\n")
+  })
+  
+})
+
+
 shinyApp(ui = ui, server = server)
