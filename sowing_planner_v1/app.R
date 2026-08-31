@@ -4,6 +4,7 @@
 library(shiny)
 
 source("solver_logic.R")
+source("report_logic.R")
 
 # ===============================================================================
 # UI
@@ -120,7 +121,7 @@ ui <- navbarPage(
   tabPanel(
     "Report",
     h2("Report"),
-    p("The sowing program report and yield histograms will go here.")
+    plotOutput("report_plot", height = "900px")
   ),
   
   # --- TAB 3: COMPARE ----------------------------------------------------------
@@ -135,6 +136,8 @@ ui <- navbarPage(
 # SERVER
 # ===============================================================================
 server <- function(input, output, session) {
+  
+  model_result <- reactiveVal(NULL)
   
   output$zone_pct_check <- renderText({
     total_pct <- input$zone_green_pct + input$zone_amber_pct + input$zone_red_pct
@@ -232,6 +235,13 @@ server <- function(input, output, session) {
            " | Red-zone excluded crop: ", red_zone_display)
   })
   
+  
+  output$report_plot <- renderPlot({
+    req(model_result())
+    res <- model_result()
+    req(res$status == "success")
+    print(build_sowing_report(res))
+  }, width = 1400, height = 900)
  
 # ===============================================================================
 # RUN THE APP
@@ -278,6 +288,14 @@ server <- function(input, output, session) {
     result <- run_sowing_model(params, progress_callback = function(decile_done) {
       incProgress(1 / deciles_total, detail = paste(decile_done, "complete"))
     })
+    
+    model_result(result)
+    
+    if (result$status == "success") {
+      report_plot <- build_sowing_report(result)
+      ggsave(file.path(result$output_folder, paste0(params$simulation_name, "_report.png")),
+             report_plot, width = 16, height = 9, dpi = 150)
+    }
     
     output$run_check <- renderText({
       if (result$status == "success") {

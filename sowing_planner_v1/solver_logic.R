@@ -287,6 +287,8 @@ run_sowing_model <- function(params, progress_callback = NULL) {
     status = "success",
     run_summary = run_summary,
     all_results = all_results,
-    output_folder = params$output_folder
+    output_folder = params$output_folder,
+    grain_price_table = grain_price_table,
+    variable_cost_table = variable_cost_table
   ))
 }
