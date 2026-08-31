@@ -237,6 +237,8 @@ server <- function(input, output, session) {
 # RUN THE APP
 # ===============================================================================
   observeEvent(input$run_btn, {
+    
+    updateActionButton(session, "run_btn", label = "Running...")
   
   yield_file_path <- if (input$yield_file_choice == "default") {
     "../files/EP_yld_long_format.xlsx"
@@ -269,11 +271,27 @@ server <- function(input, output, session) {
     output_folder = file.path(input$output_base_folder, input$simulation_name)
   )
   
-  output$run_check <- renderText({
-    result <- run_sowing_model(params)
-    paste(capture.output(str(params)), "\n\n--- Function output ---\n",
-          capture.output(str(result)), collapse = "\n")
+  withProgress(message = "Running simulation...", value = 0, {
+    
+    deciles_total <- 3
+    
+    result <- run_sowing_model(params, progress_callback = function(decile_done) {
+      incProgress(1 / deciles_total, detail = paste(decile_done, "complete"))
+    })
+    
+    output$run_check <- renderText({
+      if (result$status == "success") {
+        paste0("✓ Simulation complete: ", params$simulation_name, "\n",
+               paste(capture.output(print(result$run_summary[, c("decile", "expected_yield_t", "expected_gm_dollars")])), collapse = "\n"),
+               "\n\nFiles saved to: ", result$output_folder)
+      } else {
+        paste0("✗ ", result$message)
+      }
+    })
+    
   })
+  
+  updateActionButton(session, "run_btn", label = "Run simulation")
   
   })
   
