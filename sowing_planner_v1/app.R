@@ -94,21 +94,15 @@ ui <- navbarPage(
     ),
     
     h3("Files"),
-    radioButtons("yield_file_choice", "Yield input file",
-                 choices = c("Use default" = "default", "Choose a different file" = "custom"),
-                 selected = "default"),
+    selectInput("yield_file_choice", "Yield input file",
+                choices = c("Baseline" = "files/EP_yld_long_format.xlsx",
+                            "Mock/Test scenario" = "files/EP_yld_long_format_MOCK.xlsx",
+                            "Upload my own file..." = "custom")),
     conditionalPanel(
       condition = "input.yield_file_choice == 'custom'",
-      textInput("yield_file_custom", "Path to yield file",
-                value = "", placeholder = "e.g. C:/path/to/your_yield_file.xlsx")
+      fileInput("yield_file_upload", "Upload yield file (.xlsx)", accept = ".xlsx")
     ),
     textOutput("yield_file_display"),
-    
-    textInput("output_base_folder", "Save outputs to folder",
-              value = "C:/Users/ouz001/working_from_home_post_Sep2022/Risk_wise_sowing_sequencing_allocation/output"),
-    
-  
-    textOutput("output_folder_display"),
     
     verbatimTextOutput("setup_check"),
     
@@ -179,12 +173,12 @@ server <- function(input, output, session) {
   })
   
   output$yield_file_display <- renderText({
-    file_path <- if (input$yield_file_choice == "default") {
-      "../files/EP_yld_long_format.xlsx" # I need to upadte this later when the network is going
+    if (input$yield_file_choice == "custom") {
+      req(input$yield_file_upload)
+      paste0("Using uploaded file: ", input$yield_file_upload$name)
     } else {
-      input$yield_file_custom
+      paste0("Using: ", input$yield_file_choice)
     }
-    paste0("Using: ", file_path)
   })
   
   output$output_folder_display <- renderText({
@@ -250,11 +244,12 @@ server <- function(input, output, session) {
     
     updateActionButton(session, "run_btn", label = "Running...")
   
-  yield_file_path <- if (input$yield_file_choice == "default") {
-    "../files/EP_yld_long_format.xlsx"
-  } else {
-    input$yield_file_custom
-  }
+    yield_file_path <- if (input$yield_file_choice == "custom") {
+      req(input$yield_file_upload)
+      input$yield_file_upload$datapath
+    } else {
+      input$yield_file_choice
+    }
   
   red_zone_final <- if (input$red_zone_excluded_crop == "None") {
     NA
@@ -278,7 +273,7 @@ server <- function(input, output, session) {
     price_scenario = input$price_scenario,
     optimise_for = input$optimise_for,
     yield_file_path = yield_file_path,
-    output_folder = file.path(input$output_base_folder, input$simulation_name)
+    output_folder = file.path(tempdir(), input$simulation_name)
   )
   
   withProgress(message = "Running simulation...", value = 0, {
