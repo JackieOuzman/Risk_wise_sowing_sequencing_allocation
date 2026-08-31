@@ -29,7 +29,7 @@ site_name <- "Lock, Eyre Peninsula"
 cropping_area_ha <- 1000
 daily_capacity_ha <- 15
 
-program_start_date <- as.Date("2026-06-07") # 2026-04-08 (YYYMMDD)
+program_start_date <- as.Date("2026-04-08") # 2026-04-08 (YYYMMDD)
 
 zone_pct <- c(Green = 0.60, Amber = 0.20, Red = 0.20)
 zone_ha  <- zone_pct * cropping_area_ha
@@ -40,6 +40,37 @@ legume_targets <- c(Lupins = 100, Beans = 100)
 red_zone_excluded_crop <- "Beans"
 
 deciles_to_run <- c("D1-3", "D4-6", "D7-9")
+
+# --- Grain prices ($/t) — editable defaults, choose which price scenario to use ---
+grain_price_table <- tribble(
+  ~crop,     ~Low, ~Average, ~High,
+  "Wheat",    200,  315,      400,
+  "Barley",   200,  285,      380,
+  "Canola",   500,  700,      1100,
+  "Lentils",  500,  650,      1000,
+  "Beans",    400,  500,      700,
+  "Lupins",   200,  400,      600,
+  "Peas",     300,  400,      800
+)
+
+price_scenario <- "Average"   # <- change to "Low" or "High" to use a different price scenario
+
+grain_price <- setNames(grain_price_table[[price_scenario]], grain_price_table$crop)
+
+# --- Variable costs ($/ha) by crop AND decile — editable defaults -----------
+variable_cost_table <- tribble(
+  ~crop,     ~`D1-3`, ~`D4-6`, ~`D7-9`,
+  "Wheat",    284,     392,     473,
+  "Barley",   230,     339,     402,
+  "Canola",   324,     418,     469,
+  "Lentils",  241,     267,     312,
+  "Beans",    222,     238,     259,
+  "Lupins",   194,     221,     265,
+  "Peas",     184,     199,     214
+)
+
+# --- What should the optimiser maximise? -------------------------------------
+optimise_for <- "yield"   # <- change to "gm" to optimise for gross margin instead #yield
 
 
 # ===============================================================================
@@ -145,6 +176,19 @@ for (target_decile in deciles_to_run) {
   
   if (sum(is.na(yield_array)) > 0) stop(paste("Missing yield lookups for", target_decile))
   
+  if (sum(is.na(yield_array)) > 0) stop(paste("Missing yield lookups for", target_decile))
+  
+  # --- Build the gross margin array ($/ha) for this decile -----------------
+  var_cost_decile <- setNames(variable_cost_table[[target_decile]], variable_cost_table$crop)
+  
+  gm_array <- array(NA_real_, dim = c(n_crops, n_zones, n_weeks))
+  for (ci in 1:n_crops) for (zi in 1:n_zones) for (wi in 1:n_weeks) {
+    gm_array[ci, zi, wi] <- yield_array[ci, zi, wi] * grain_price[crops[ci]] - var_cost_decile[crops[ci]]
+  }
+  
+  # --- Choose which array drives the objective this run ---------------------
+  objective_array <- if (optimise_for == "gm") gm_array else yield_array
+  
   yield_vec <- c()
   for (ci in 1:n_crops) for (zi in 1:n_zones) for (wi in 1:n_weeks) {
     yield_vec[paste(ci, zi, wi, sep = "_")] <- yield_array[ci, zi, wi]
@@ -211,10 +255,12 @@ for (target_decile in deciles_to_run) {
   
   terms_expr <- list()
   for (ci in 1:n_crops) for (zi in 1:n_zones) for (wi in 1:n_weeks) {
-    coef <- yield_array[ci, zi, wi]
+    coef <- objective_array[ci, zi, wi]
     terms_expr[[length(terms_expr) + 1]] <- expr(!!coef * ha[!!ci, !!zi, !!wi])
   }
   obj_expr <- reduce(terms_expr, function(a, b) expr(!!a + !!b))
+  
+  
   
   model <- inject(set_objective(model, !!obj_expr, sense = "max"))
   
@@ -235,6 +281,17 @@ for (target_decile in deciles_to_run) {
   }))
   cat(target_decile, "— manual objective check:", manual_obj,
       "| solver-reported objective:", result$objective_value, "\n")
+  
+  # --- Always calculate BOTH totals from the final solution, regardless of
+  #     which one drove the optimisation ---------------------------------
+  total_expected_yield <- sum(sapply(1:nrow(ha_solution), function(i) {
+    yield_array[ha_solution$c[i], ha_solution$z[i], ha_solution$w[i]] * ha_solution$value[i]
+  }))
+  total_expected_gm <- sum(sapply(1:nrow(ha_solution), function(i) {
+    gm_array[ha_solution$c[i], ha_solution$z[i], ha_solution$w[i]] * ha_solution$value[i]
+  }))
+  cat(target_decile, "— Expected yield:", total_expected_yield, "t | Expected GM: $", total_expected_gm, "\n")
+  
   
   sowing_plan <- ha_solution[ha_solution$value > 0, c("crop", "zone", "week", "value")]
   sowing_plan <- sowing_plan[order(sowing_plan$crop, sowing_plan$week), ]
@@ -280,8 +337,14 @@ for (target_decile in deciles_to_run) {
     zone_amber_ha = zone_ha["Amber"],
     zone_red_ha = zone_ha["Red"],
     red_zone_excluded_crop = ifelse(is.na(red_zone_excluded_crop), "None", red_zone_excluded_crop),
+    
     total_ha_sown = sum(sowing_plan$value),
-    objective_expected_yield = result$objective_value
+    optimise_for = optimise_for,
+    price_scenario = price_scenario,
+    
+    expected_yield_t = total_expected_yield,
+    expected_gm_dollars = total_expected_gm
+
   )
   
   run_row <- cbind(run_row, crop_wide)
@@ -301,7 +364,9 @@ for (d in names(all_results)) cat(d, ":", all_results[[d]]$objective, "\n")
 
 run_filename <- paste0(simulation_name, "_run_summary.csv")
 write.csv(run_summary, paste0(file_path, run_filename), row.names = FALSE)
+write.csv(grain_price_table, paste0(file_path, simulation_name, "_grain_prices.csv"), row.names = FALSE)
+write.csv(variable_cost_table, paste0(file_path, simulation_name, "_variable_costs.csv"), row.names = FALSE)
 
 print(run_summary)
 cat("\nSaved:", run_filename, "\n")
-capacity 
+ 

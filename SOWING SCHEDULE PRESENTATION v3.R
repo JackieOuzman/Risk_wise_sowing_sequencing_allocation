@@ -34,6 +34,8 @@ plans <- lapply(deciles, function(d) {
   df
 })
 all_plans <- bind_rows(plans)
+grain_prices <- read.csv(paste0(file_path, simulation_name, "_grain_prices.csv"), stringsAsFactors = FALSE)
+variable_costs <- read.csv(paste0(file_path, simulation_name, "_variable_costs.csv"), stringsAsFactors = FALSE, check.names = FALSE)
 
 # ===============================================================================
 # SECTION 3 — PREP: SEGMENT WIDTHS, AXIS RANGE, CROP ORDER
@@ -164,11 +166,15 @@ build_header <- function(header_info) {
   subtitle_text <- textGrob(header_info$site_name,
                             x = 0, hjust = 0, gp = gpar(fontsize = 11, col = "grey40"))
   
+  optimise_label <- if (header_info$optimise_for == "gm") "Gross Margin" else "Yield"
+  
   inputs_text <- textGrob(
     paste0("Cropping area: ", header_info$cropping_area_ha, " ha    |    ",
            "Sowing capacity: ", header_info$daily_capacity_ha, " ha/day    |    ",
            "Program start: ", header_info$program_start_date, "    |    ",
-           "Red zone excluded: ", header_info$red_zone_excluded_crop),
+           "Red zone excluded: ", header_info$red_zone_excluded_crop, "    |    ",
+           "Optimising for: ", optimise_label, "    |    ",
+           "Price scenario: ", header_info$price_scenario),
     x = 0, hjust = 0, gp = gpar(fontsize = 10)
   )
   
@@ -182,6 +188,30 @@ print(header_panel)
 # ===============================================================================
 # SECTION 8 — COMBINE INTO FINAL REPORT
 # ===============================================================================
+# --- Build a combined grain price / variable cost table (spans full width) ----
+# --- Build a combined grain price / variable cost table, crops as columns ----
+build_price_cost_table <- function(grain_prices, variable_costs, price_scenario, crop_order) {
+  combined <- grain_prices %>%
+    select(crop, price = all_of(price_scenario)) %>%
+    left_join(variable_costs, by = "crop")
+  
+  transposed <- data.frame(
+    rbind(combined$price, combined$`D1-3`, combined$`D4-6`, combined$`D7-9`)
+  )
+  colnames(transposed) <- combined$crop
+  transposed <- cbind(Metric = c("Price ($/t)", "VC D1-3 ($/ha)", "VC D4-6 ($/ha)", "VC D7-9 ($/ha)"),
+                      transposed)
+  names(transposed)[1] <- ""
+  
+  # --- Bold the column headers for crops actually used in this scenario -----
+  fontface_vec <- c("plain", ifelse(combined$crop %in% crop_order, "bold", "plain"))
+  
+  tableGrob(transposed, rows = NULL,
+            theme = ttheme_minimal(base_size = 9, padding = unit(c(4, 2), "mm"),
+                                   colhead = list(fg_params = list(fontface = fontface_vec))))
+}
+
+
 # --- Build a "sown vs capacity" table for each decile --------------------
 build_capacity_table <- function(decile_label, all_plans, header_info) {
   
@@ -222,8 +252,15 @@ build_sown_table <- function(decile_label, run_summary, crop_order) {
 
 # --- Build a yield label for each decile ------------------------------
 build_yield_label <- function(decile_label, run_summary) {
-  yield_val <- run_summary$objective_expected_yield[run_summary$decile == decile_label]
+  yield_val <- run_summary$expected_yield_t[run_summary$decile == decile_label]
   textGrob(paste0("Expected yield: ", format(round(yield_val, 0), big.mark = ","), " t"),
+           gp = gpar(fontsize = 11, fontface = "bold"))
+}
+
+# --- Build a GM label for each decile ---------------------------------
+build_gm_label <- function(decile_label, run_summary) {
+  gm_val <- run_summary$expected_gm_dollars[run_summary$decile == decile_label]
+  textGrob(paste0("Expected GM: $", format(round(gm_val, 0), big.mark = ",")),
            gp = gpar(fontsize = 11, fontface = "bold"))
 }
 
@@ -253,22 +290,32 @@ yield_row <- plot_grid(
   ncol = 3
 )
 
+gm_row <- plot_grid(
+  build_gm_label("D1-3", run_summary),
+  build_gm_label("D4-6", run_summary),
+  build_gm_label("D7-9", run_summary),
+  ncol = 3
+)
+
 # --- Combine header + all rows into the final report -------------------
+price_cost_panel <- build_price_cost_table(grain_prices, variable_costs, header_info$price_scenario, crop_order)
+
 final_report <- plot_grid(
   header_panel,
+  price_cost_panel,
   plots_row,
   sown_header,
   sown_row,
   capacity_header,
   capacity_row,
   yield_row,
+  gm_row,
   ncol = 1,
-  rel_heights = c(0.3, 1, 0.08, 0.25, 0.08, 0.4, 0.08)
+  rel_heights = c(0.3, 0.35, 1, 0.08, 0.25, 0.08, 0.4, 0.08, 0.08)
 )
 print(final_report)
 ggsave(paste0(file_path, simulation_name, "_report.png"), final_report,
        width = 16, height = 9, dpi = 150)
 
 
-ggsave(paste0(file_path, simulation_name, "_report.png"), final_report,
-       width = 16, height = 9, dpi = 150)
+
