@@ -3,6 +3,8 @@
 # ===============================================================================
 library(shiny)
 
+source("solver_logic.R")
+
 # ===============================================================================
 # UI
 # ===============================================================================
@@ -213,6 +215,7 @@ server <- function(input, output, session) {
   
   
   output$setup_check <- renderText({
+    req(input$red_zone_excluded_crop)
     red_zone_display <- if (input$red_zone_excluded_crop == "None") {
       "None (all crops allowed in Red zone)"
     } else {
@@ -228,12 +231,12 @@ server <- function(input, output, session) {
            " | ", input$legume2_crop, ": ", input$legume2_ha,
            " | Red-zone excluded crop: ", red_zone_display)
   })
-
-}
+  
+ 
 # ===============================================================================
 # RUN THE APP
 # ===============================================================================
-observeEvent(input$run_btn, {
+  observeEvent(input$run_btn, {
   
   yield_file_path <- if (input$yield_file_choice == "default") {
     "../files/EP_yld_long_format.xlsx"
@@ -267,10 +270,13 @@ observeEvent(input$run_btn, {
   )
   
   output$run_check <- renderText({
-    paste(capture.output(str(params)), collapse = "\n")
+    result <- run_sowing_model(params)
+    paste(capture.output(str(params)), "\n\n--- Function output ---\n",
+          capture.output(str(result)), collapse = "\n")
   })
   
-})
-
+  })
+  
+}
 
 shinyApp(ui = ui, server = server)
