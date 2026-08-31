@@ -9,24 +9,27 @@ library(ompr)
 library(ompr.roi)
 library(ROI.plugin.glpk)
 library(rlang)
+library(purrr)
 
 
 # ===============================================================================
 # SECTION 1 — USER INPUTS
 # ===============================================================================
-file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
-#file_name <- "EP_yld_long_format.xlsx"
-file_name <- "EP_yld_long_format_MOCK.xlsx"
+#file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
+getwd()
+file_path <- "C:/Users/ouz001/working_from_home_post_Sep2022/Risk_wise_sowing_sequencing_allocation/files/"
+file_name <- "EP_yld_long_format.xlsx"
+#file_name <- "EP_yld_long_format_MOCK.xlsx"
 
 # --- Simulation name (used to group all output files together) -------------
-#simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
-simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
+simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
+#simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
 
 site_name <- "Lock, Eyre Peninsula"
 cropping_area_ha <- 1000
 daily_capacity_ha <- 15
 
-program_start_date <- as.Date("2026-04-08")
+program_start_date <- as.Date("2026-06-07") # 2026-04-08 (YYYMMDD)
 
 zone_pct <- c(Green = 0.60, Amber = 0.20, Red = 0.20)
 zone_ha  <- zone_pct * cropping_area_ha
@@ -34,7 +37,7 @@ zone_ha  <- zone_pct * cropping_area_ha
 crop_targets <- c(Wheat = 400, Barley = 400, Canola = 0)
 legume_targets <- c(Lupins = 100, Beans = 100)
 
-red_zone_excluded_crop <- "Wheat"
+red_zone_excluded_crop <- "Beans"
 
 deciles_to_run <- c("D1-3", "D4-6", "D7-9")
 
@@ -67,6 +70,34 @@ weeks <- active_calendar$week
 n_crops <- length(crops)
 n_zones <- length(zones)
 n_weeks <- length(weeks)
+
+# --- Feasibility check: is there enough sowing capacity for this start date? ---
+check_feasibility <- function(capacity_vec, crop_targets_final) {
+  total_capacity <- sum(capacity_vec)
+  total_target <- sum(crop_targets_final)
+  list(
+    feasible = total_capacity >= total_target,
+    total_capacity = total_capacity,
+    total_target = total_target,
+    shortfall = max(0, total_target - total_capacity)
+  )
+}
+
+feasibility <- check_feasibility(capacity_vec, crop_targets_final)
+
+cat("Total available sowing capacity:", feasibility$total_capacity, "ha over", n_weeks, "weeks\n")
+cat("Total crop area to sow:", feasibility$total_target, "ha\n")
+
+if (!feasibility$feasible) {
+  stop(paste0(
+    "Not enough sowing capacity for this program start date.\n",
+    "  Program start: ", program_start_date, " leaves only ", n_weeks,
+    " weeks (", feasibility$total_capacity, " ha of capacity)\n",
+    "  Total crop area required: ", feasibility$total_target, " ha\n",
+    "  Shortfall: ", feasibility$shortfall, " ha\n",
+    "Try an earlier program_start_date, or reduce your crop targets."
+  ))
+}
 
 yield_long <- read_excel(paste0(file_path, file_name), sheet = "Yield data long format")
 
@@ -119,11 +150,7 @@ for (target_decile in deciles_to_run) {
     yield_vec[paste(ci, zi, wi, sep = "_")] <- yield_array[ci, zi, wi]
   }
   
-  lupins_idx <- which(crops == "Lupins")
-  red_idx    <- which(zones == "Red")
-  week6_idx  <- which(weeks == 6)
-  cat(target_decile, "— yield_vec Lupins-Red-week6:",
-      yield_vec[paste(lupins_idx, red_idx, week6_idx, sep = "_")], "\n")
+  
   
   # --- Build a FRESH model -------------------------------------------------
   model <- MILPModel() %>%
@@ -144,15 +171,36 @@ for (target_decile in deciles_to_run) {
   
   
   
-  # --- Check 5: a crop can only START if every OTHER crop that's still in
-  #     play has already reached its full target BY THE END of this week
-  #     (still allows one shared handover week where the outgoing crop finishes) --
-  model <- model %>%
-    add_constraint(
-      sum_expr(ha[c1, z, ww], z = 1:n_zones, ww = 1:w) >=
-        crop_targets_final[c1] * (start[c2, w] + sum_expr(start[c1, www], www = 1:w) - 1),
-      c1 = 1:n_crops, c2 = 1:n_crops, w = 1:n_weeks, c1 != c2
-    )
+  # --- Check 5: built explicitly with real loop indices — avoids ompr's
+  #     dependent-range (ww = 1:w) expansion, which silently mishandles
+  #     ranges that depend on another loop variable (same root cause as
+  #     last week's objective bug)
+  for (c1 in 1:n_crops) {
+    for (c2 in 1:n_crops) {
+      if (c1 == c2) next
+      for (w in 1:n_weeks) {
+        cum_ha_terms <- list()
+        for (ww in 1:w) for (z in 1:n_zones) {
+          cum_ha_terms[[length(cum_ha_terms) + 1]] <- expr(ha[!!c1, !!z, !!ww])
+        }
+        cum_ha_expr <- Reduce(function(a, b) expr(!!a + !!b), cum_ha_terms)
+        
+        cum_start_terms <- list()
+        for (www in 1:w) {
+          cum_start_terms[[length(cum_start_terms) + 1]] <- expr(start[!!c1, !!www])
+        }
+        cum_start_expr <- Reduce(function(a, b) expr(!!a + !!b), cum_start_terms)
+        
+        target_val <- crop_targets_final[c1]
+        
+        constraint_expr <- expr(
+          !!cum_ha_expr >= !!target_val * (start[!!c2, !!w] + !!cum_start_expr - 1)
+        )
+        
+        model <- inject(add_constraint(model, !!constraint_expr))
+      }
+    }
+  }
  
   
   if (!is.na(red_zone_excluded_crop)) {
@@ -256,4 +304,4 @@ write.csv(run_summary, paste0(file_path, run_filename), row.names = FALSE)
 
 print(run_summary)
 cat("\nSaved:", run_filename, "\n")
-
+capacity 

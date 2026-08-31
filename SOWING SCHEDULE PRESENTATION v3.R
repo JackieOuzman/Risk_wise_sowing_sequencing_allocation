@@ -15,7 +15,9 @@ library(gridExtra)
 # ===============================================================================
 # SECTION 2 — LOAD DATA
 # ===============================================================================
-file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
+#file_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/"
+getwd()
+file_path <- "C:/Users/ouz001/working_from_home_post_Sep2022/Risk_wise_sowing_sequencing_allocation/files/"
 simulation_name <- "baseline_v1"    # <- change this each time you run a new scenario
 #simulation_name <- "MOCK_Yldsv1"    # <- change this each time you run a new scenario
 deciles <- c("D1-3", "D4-6", "D7-9")
