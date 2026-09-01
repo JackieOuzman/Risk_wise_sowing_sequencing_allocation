@@ -16,38 +16,29 @@ ui <- navbarPage(
   tabPanel(
     "Setup",
     h2("Setup"),
-    textInput("site_name", "Site name", value = "Lock, Eyre Peninsula"),
-    textInput("simulation_name", "Simulation name", value = "baseline_v1"),
-    selectInput("optimise_for", "Optimise for",
-                                         choices = c("Yield" = "yield", "Gross Margin" = "gm"),
-                                         selected = "yield"),
-    numericInput("cropping_area_ha", "Cropping area (ha)", value = 1000, min = 0),
+    fluidRow(
+      column(3, textInput("site_name", "Site name", value = "Lock, Eyre Peninsula")),
+      column(3, textInput("simulation_name", "Simulation name", value = "baseline_v1")),
+      column(3, numericInput("cropping_area_ha", "Cropping area (ha)", value = 1000, min = 0)),
+      column(3, selectInput("optimise_for", "Optimise for",
+                            choices = c("Yield" = "yield", "Gross Margin" = "gm"),
+                            selected = "yield"))
+    ),
+    
     fluidRow(
       column(8, numericInput("daily_capacity_ha", "Daily sowing capacity (ha/day)", value = 15, min = 0)),
       column(4, style = "margin-top: 25px;",
-             actionButton("capacity_help_btn", "ℹ More info", class = "btn-sm"))
+             tags$a("ℹ More info", href = "capacity_guidance.pdf", target = "_blank",
+                    class = "btn btn-default btn-sm"))
     ),
-    fluidRow(column(12,
-                    conditionalPanel(
-                      condition = "input.capacity_help_btn % 2 == 1",
-                      wellPanel(
-                        p("PLACEHOLDER: guidance on how to calculate daily sowing capacity will go here.")
-                      )
-                    )
-    )),
+    
     fluidRow(
       column(8, h3("Frost zone split (%)")),
       column(4, style = "margin-top: 15px;",
-             actionButton("zone_help_btn", "ℹ More info", class = "btn-sm"))
+             tags$a("ℹ More info", href = "zone_guidance.pdf", target = "_blank",
+                    class = "btn btn-default btn-sm"))
     ),
-    fluidRow(column(12,
-                    conditionalPanel(
-                      condition = "input.zone_help_btn % 2 == 1",
-                      wellPanel(
-                        p("PLACEHOLDER: guidance on how to determine your frost zone split will go here.")
-                      )
-                    )
-    )),
+    
     fluidRow(
       column(4, numericInput("zone_green_pct", "Green %", value = 60, min = 0, max = 100)),
       column(4, numericInput("zone_amber_pct", "Amber %", value = 20, min = 0, max = 100)),
