@@ -117,6 +117,7 @@ ui <- navbarPage(
     h2("Report"),
     downloadButton("download_report", "Download report + data (.zip)"),
     br(), br(),
+    verbatimTextOutput("run_description_display"),
     plotOutput("report_plot", height = "900px")
   ),
   
@@ -124,10 +125,18 @@ ui <- navbarPage(
   tabPanel(
     "Compare",
     h2("Compare"),
-    p("Loading and comparing past simulations will go here.")
+    fileInput("compare_uploads", "Upload simulation bundle(s) (.zip)",
+              multiple = TRUE, accept = ".zip"),
+    radioButtons("compare_metric", "Compare by",
+                choices = c("Expected yield" = "expected_yield_t",
+                           "Expected GM" = "expected_gm_dollars"),
+                selected = "expected_yield_t", inline = TRUE),
+    plotOutput("compare_plot"),
+    tableOutput("compare_table"),
+    h3("Run descriptions"),
+    verbatimTextOutput("compare_descriptions")
   )
 )
-
 # ===============================================================================
 # SERVER
 # ===============================================================================
@@ -278,6 +287,10 @@ server <- function(input, output, session) {
     output_folder = file.path(tempdir(), input$simulation_name)
   )
   
+  ##############################################################################
+  ### Setup tab progressing
+  ##############################################################################
+  
   withProgress(message = "Running simulation...", value = 0, {
     
     deciles_total <- 3
@@ -310,6 +323,10 @@ server <- function(input, output, session) {
   
   })
   
+  ##############################################################################
+  ### Report tab 
+  ##############################################################################
+  
   output$download_report <- downloadHandler(
     filename = function() {
       paste0(model_result()$run_summary$simulation_name[1], "_report_bundle.zip")
@@ -323,6 +340,78 @@ server <- function(input, output, session) {
       zip::zip(zipfile = file, files = basename(files_to_zip), root = res$output_folder)
     }
   )
+  
+  output$run_description_display <- renderText({
+    req(model_result())
+    res <- model_result()
+    req(res$status == "success")
+    res$run_description
+  })
+  
+  ##############################################################################
+  ### Compare tab 
+  ##############################################################################
+  output$compare_table <- renderTable({
+    req(input$compare_uploads)
+    
+    all_summaries <- lapply(1:nrow(input$compare_uploads), function(i) {
+      zip_path <- input$compare_uploads$datapath[i]
+      extract_folder <- tempfile(pattern = "compare_")
+      dir.create(extract_folder)
+      
+      unzip(zip_path, exdir = extract_folder)
+      
+      summary_file <- list.files(extract_folder, pattern = "_run_summary\\.csv$", full.names = TRUE)
+      req(length(summary_file) == 1)
+      
+      read.csv(summary_file, stringsAsFactors = FALSE)
+    })
+    
+    bind_rows(all_summaries)[, c("simulation_name", "decile", "optimise_for",
+                                 "price_scenario", "expected_yield_t", "expected_gm_dollars")]
+  })
+  
+  output$compare_plot <- renderPlot({
+    req(input$compare_uploads)
+    
+    all_summaries <- lapply(1:nrow(input$compare_uploads), function(i) {
+      zip_path <- input$compare_uploads$datapath[i]
+      extract_folder <- tempfile(pattern = "compare_")
+      dir.create(extract_folder)
+      unzip(zip_path, exdir = extract_folder)
+      summary_file <- list.files(extract_folder, pattern = "_run_summary\\.csv$", full.names = TRUE)
+      req(length(summary_file) == 1)
+      read.csv(summary_file, stringsAsFactors = FALSE)
+    })
+    
+    combined <- bind_rows(all_summaries)
+    combined$decile <- factor(combined$decile, levels = c("D1-3", "D4-6", "D7-9"))
+    
+    y_label <- if (input$compare_metric == "expected_gm_dollars") "Expected GM ($)" else "Expected yield (t)"
+    
+    ggplot(combined, aes(x = decile, y = .data[[input$compare_metric]], fill = simulation_name)) +
+      geom_col(position = "dodge") +
+      labs(title = paste(y_label, "by decile and simulation"), x = "Decile", y = y_label, fill = "Simulation") +
+      theme_minimal(base_size = 12)
+  })
+  
+  output$compare_descriptions <- renderText({
+    req(input$compare_uploads)
+    
+    all_descriptions <- lapply(1:nrow(input$compare_uploads), function(i) {
+      zip_path <- input$compare_uploads$datapath[i]
+      extract_folder <- tempfile(pattern = "compare_")
+      dir.create(extract_folder)
+      unzip(zip_path, exdir = extract_folder)
+      desc_file <- list.files(extract_folder, pattern = "_run_description\\.txt$", full.names = TRUE)
+      req(length(desc_file) == 1)
+      paste(readLines(desc_file), collapse = "\n")
+    })
+    
+    paste(all_descriptions, collapse = "\n\n=====================================\n\n")
+  })
+  
+  
   
 }
 

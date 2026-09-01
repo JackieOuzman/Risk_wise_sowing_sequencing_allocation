@@ -283,12 +283,34 @@ run_sowing_model <- function(params, progress_callback = NULL) {
             file.path(params$output_folder, paste0(params$simulation_name, "_variable_costs.csv")),
             row.names = FALSE)
   
+  optimise_label <- if (params$optimise_for == "gm") "Gross Margin" else "Yield"
+  red_zone_label <- if (is.na(params$red_zone_excluded_crop)) "None" else params$red_zone_excluded_crop
+  
+  crop_summary <- paste(names(crop_targets_final), crop_targets_final, sep = "=", collapse = ", ")
+  
+  run_description <- paste0(
+    "Simulation: ", params$simulation_name, "\n",
+    "Site: ", params$site_name, "\n",
+    "Cropping area: ", params$cropping_area_ha, " ha | Daily capacity: ", params$daily_capacity_ha, " ha/day\n",
+    "Zone split: Green ", params$zone_pct["Green"] * 100, "% / Amber ", params$zone_pct["Amber"] * 100,
+    "% / Red ", params$zone_pct["Red"] * 100, "%\n",
+    "Crop targets (ha): ", crop_summary, "\n",
+    "Red-zone excluded crop: ", red_zone_label, "\n",
+    "Program start date: ", as.character(params$program_start_date), "\n",
+    "Optimising for: ", optimise_label, "\n",
+    "Price scenario: ", params$price_scenario, "\n",
+    "Yield input file: ", basename(params$yield_file_path), "\n"
+  )
+  
+  writeLines(run_description, file.path(params$output_folder, paste0(params$simulation_name, "_run_description.txt")))
+  
   return(list(
     status = "success",
     run_summary = run_summary,
     all_results = all_results,
     output_folder = params$output_folder,
     grain_price_table = grain_price_table,
-    variable_cost_table = variable_cost_table
+    variable_cost_table = variable_cost_table,
+    run_description = run_description
   ))
 }
