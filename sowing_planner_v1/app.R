@@ -367,8 +367,11 @@ server <- function(input, output, session) {
       read.csv(summary_file, stringsAsFactors = FALSE)
     })
     
-    bind_rows(all_summaries)[, c("simulation_name", "decile", "optimise_for",
-                                 "price_scenario", "expected_yield_t", "expected_gm_dollars")]
+    combined <- bind_rows(all_summaries)[, c("simulation_name", "decile", "optimise_for",
+                                             "price_scenario", "expected_yield_t", "expected_gm_dollars")]
+    combined$expected_yield_t <- format(round(combined$expected_yield_t), big.mark = ",")
+    combined$expected_gm_dollars <- paste0("$", format(round(combined$expected_gm_dollars), big.mark = ","))
+    combined
   })
   
   output$compare_plot <- renderPlot({

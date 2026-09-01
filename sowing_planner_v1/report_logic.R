@@ -75,7 +75,7 @@ build_sowing_report <- function(result) {
       geom_rect(aes(xmin = x_start, xmax = x_end,
                     ymin = y_pos - half_height, ymax = y_pos + half_height,
                     fill = zone), color = "white", linewidth = 0.3) +
-      geom_text(aes(x = x_mid, y = y_pos, label = value),
+      geom_text(aes(x = x_mid, y = y_pos, label = round(value)),
                 size = 2.8, color = "white", fontface = "bold") +
       scale_x_continuous(breaks = 1:length(crop_order), labels = crop_order, position = "top") +
       scale_y_continuous(breaks = y_breaks, labels = y_labels) +
