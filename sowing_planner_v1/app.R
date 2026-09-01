@@ -5,6 +5,7 @@ library(shiny)
 
 source("solver_logic.R")
 source("report_logic.R")
+source("price_cost_data.R")
 
 # ===============================================================================
 # UI
@@ -12,7 +13,26 @@ source("report_logic.R")
 ui <- navbarPage(
   title = "Sowing Schedule Planner",
   
-  # --- TAB 1: SETUP -----------------------------------------------------------
+  # --- TAB 1: GUIDE -------------------------------------------------------------
+  tabPanel(
+    "Guide",
+    h2("User Guide & Model Documentation"),
+    downloadButton("download_guide", "Download guide (.docx)"),
+    br(), br(),
+    tags$iframe(style = "height:85vh; width:100%; border:none;",
+                src = "sowing_planner_guide.pdf")
+  ),
+  
+  # --- TAB 2: INPUT DATA --------------------------------------------------------
+  tabPanel(
+    "Input Data",
+    h2("Input Data"),
+    h3("Grain prices and variable costs"),
+    tableOutput("price_cost_table_display"),
+    h3("Yield distribution by crop, zone, and decile"),
+    plotOutput("yield_histogram", height = "700px")
+  ),
+  # --- TAB 3: SETUP -----------------------------------------------------------
   tabPanel(
     "Setup",
     h2("Setup"),
@@ -102,7 +122,7 @@ ui <- navbarPage(
     verbatimTextOutput("run_check")
   ),
   
-  # --- TAB 2: REPORT -----------------------------------------------------------
+  # --- TAB 4: REPORT -----------------------------------------------------------
   tabPanel(
     "Report",
     h2("Report"),
@@ -112,7 +132,7 @@ ui <- navbarPage(
     plotOutput("report_plot", height = "900px")
   ),
   
-  # --- TAB 3: COMPARE ----------------------------------------------------------
+  # --- TAB 5: COMPARE ----------------------------------------------------------
   tabPanel(
     "Compare",
     h2("Compare"),
@@ -134,6 +154,16 @@ ui <- navbarPage(
 server <- function(input, output, session) {
   
   model_result <- reactiveVal(NULL)
+  
+  yield_file_current <- reactive({
+    if (input$yield_file_choice == "custom") {
+      req(input$yield_file_upload)
+      input$yield_file_upload$datapath
+    } else {
+      input$yield_file_choice
+    }
+  })
+  
   
   output$zone_pct_check <- renderText({
     total_pct <- input$zone_green_pct + input$zone_amber_pct + input$zone_red_pct
@@ -246,12 +276,7 @@ server <- function(input, output, session) {
     
     updateActionButton(session, "run_btn", label = "Running...")
   
-    yield_file_path <- if (input$yield_file_choice == "custom") {
-      req(input$yield_file_upload)
-      input$yield_file_upload$datapath
-    } else {
-      input$yield_file_choice
-    }
+    yield_file_path <- yield_file_current()
   
   red_zone_final <- if (input$red_zone_excluded_crop == "None") {
     NA
@@ -405,7 +430,30 @@ server <- function(input, output, session) {
     paste(all_descriptions, collapse = "\n\n=====================================\n\n")
   })
   
+###############################################################################
+### guide doc ################################################################
   
+  output$download_guide <- downloadHandler(
+    filename = function() { "sowing_planner_guide.docx" },
+    content = function(file) {
+      file.copy("www/sowing_planner_guide.docx", file)
+    }
+  )
+  
+  output$price_cost_table_display <- renderTable({
+    grain_price_table %>% left_join(variable_cost_table, by = "crop")
+  })
+  
+  output$yield_histogram <- renderPlot({
+    yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
+    
+    ggplot(yield_long, aes(x = yield_t_per_ha, colour = decile_band, fill = decile_band)) +
+      geom_density(alpha = 0.3, linewidth = 0.8) +
+      facet_grid(frost_zone ~ crop, scales = "free") +
+      labs(title = "Yield distribution by crop, zone, and decile",
+           x = "Yield (t/ha)", y = "Density", fill = "Decile", colour = "Decile") +
+      theme_minimal(base_size = 11)
+  })
   
 }
 
