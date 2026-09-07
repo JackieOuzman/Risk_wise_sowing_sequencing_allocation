@@ -7,6 +7,10 @@ source("solver_logic.R")
 source("report_logic.R")
 source("price_cost_data.R")
 
+MAX_TARGET_CROPS <- 6  # solver's sequencing constraint scales ~crops² × weeks² — revisit if this changes
+sanitize_crop_id <- function(crop) make.names(crop)
+
+
 # ===============================================================================
 # UI
 # ===============================================================================
@@ -89,23 +93,21 @@ ui <- navbarPage(
     ),
     textOutput("zone_pct_check"),
     
-    h3("Crop targets (ha)"),
-    fluidRow(
-      column(4, numericInput("wheat_ha", "Wheat", value = 400, min = 0)),
-      column(4, numericInput("barley_ha", "Barley", value = 400, min = 0)),
-      column(4, numericInput("canola_ha", "Canola", value = 0, min = 0))
-    ),
     
-    h4("Legumes (choose up to 2)"),
+    
+    h3("Crop targets (ha)"),
+    uiOutput("target_crop_selection_ui"),
+    uiOutput("target_crop_ha_ui"),
+    
+    
+    h3("Legumes (choose up to 2)"),
     fluidRow(
-      column(6, selectInput("legume1_crop", "Legume 1",
-                            choices = c("Lentils", "Beans", "Lupins", "Peas"),
-                            selected = "Beans")),
-      column(6, numericInput("legume1_ha", "Legume 1 area (ha)", value = 100, min = 0))
+      column(6, uiOutput("legume1_crop_ui")),
+      column(6, numericInput("legume1_ha", "Legume 1 area (ha)", value = 0, min = 0))
     ),
     fluidRow(
       column(6, uiOutput("legume2_crop_ui")),
-      column(6, numericInput("legume2_ha", "Legume 2 area (ha)", value = 100, min = 0))
+      column(6, numericInput("legume2_ha", "Legume 2 area (ha)", value = 0, min = 0))
     ),
     
     textOutput("crop_total_check"),
@@ -173,6 +175,36 @@ server <- function(input, output, session) {
     distinct(yield_long, crop, `Crop type`)
   })
   
+  target_crops <- reactive({
+    req(crop_metadata())
+    sort(crop_metadata()$crop[crop_metadata()$`Crop type` == "target crop"])
+  })
+  
+  legume_crops <- reactive({
+    req(crop_metadata())
+    sort(crop_metadata()$crop[crop_metadata()$`Crop type` == "legume crop"])
+  })
+  
+  output$target_crop_selection_ui <- renderUI({
+    choices <- target_crops()
+    req(length(choices) > 0)
+    selectizeInput("target_crop_selection",
+                   paste0("Select target crops (choose up to ", MAX_TARGET_CROPS, ")"),
+                   choices = choices,
+                   selected = choices[seq_len(min(length(choices), MAX_TARGET_CROPS))],
+                   multiple = TRUE,
+                   options = list(maxItems = MAX_TARGET_CROPS))
+  })
+  
+  target_crop_ha_values <- reactive({
+    crops <- input$target_crop_selection
+    req(length(crops) > 0)
+    ids <- paste0("target_ha_", sanitize_crop_id(crops))
+    vals <- lapply(ids, function(id) input[[id]])
+    req(all(!sapply(vals, is.null)))
+    setNames(unlist(vals), crops)
+  })
+  
   output$zone_pct_check <- renderText({
     total_pct <- input$zone_green_pct + input$zone_amber_pct + input$zone_red_pct
     if (total_pct == 100) {
@@ -182,16 +214,35 @@ server <- function(input, output, session) {
     }
   })
   
+  output$target_crop_ha_ui <- renderUI({
+    crops <- input$target_crop_selection
+    req(length(crops) > 0)
+    
+    col_width <- max(floor(12 / length(crops)), 2)
+    
+    inputs <- lapply(crops, function(crop) {
+      column(col_width,
+             numericInput(paste0("target_ha_", sanitize_crop_id(crop)), crop, value = 0, min = 0))
+    })
+    fluidRow(inputs)
+  })
+  
+  output$legume1_crop_ui <- renderUI({
+    choices <- legume_crops()
+    req(length(choices) > 0)
+    selectInput("legume1_crop", "Legume 1", choices = choices)
+  })
+  
   output$legume2_crop_ui <- renderUI({
-    remaining_choices <- setdiff(c("Lentils", "Beans", "Lupins", "Peas"), input$legume1_crop)
+    remaining_choices <- setdiff(legume_crops(), input$legume1_crop)
     selectInput("legume2_crop", "Legume 2", choices = remaining_choices)
   })
+  
+  
   output$crop_total_check <- renderText({
-    total_crop_ha <- input$wheat_ha + input$barley_ha + input$canola_ha +
-      input$legume1_ha + input$legume2_ha
+    req(target_crop_ha_values())
+    total_crop_ha <- sum(target_crop_ha_values()) + input$legume1_ha + input$legume2_ha
     if (total_crop_ha == input$cropping_area_ha) {
-      paste0("✓ Crop targets sum to ", total_crop_ha, " ha, matching cropping area")
-    } else if (total_crop_ha < input$cropping_area_ha) {
       paste0("Crop targets sum to ", total_crop_ha, " ha — ",
              input$cropping_area_ha - total_crop_ha, " ha of the farm left unallocated")
     } else {
@@ -202,7 +253,8 @@ server <- function(input, output, session) {
   
   
   output$red_zone_crop_ui <- renderUI({
-    all_crops <- c(Wheat = input$wheat_ha, Barley = input$barley_ha, Canola = input$canola_ha)
+    req(target_crop_ha_values())
+    all_crops <- target_crop_ha_values()
     all_crops[input$legume1_crop] <- input$legume1_ha
     all_crops[input$legume2_crop] <- input$legume2_ha
     
@@ -237,8 +289,8 @@ server <- function(input, output, session) {
     active_days <- window_days[window_date >= input$program_start_date]
     total_capacity <- sum(input$daily_capacity_ha * active_days)
     
-    total_target <- input$wheat_ha + input$barley_ha + input$canola_ha +
-      input$legume1_ha + input$legume2_ha
+    req(target_crop_ha_values())
+    total_target <- sum(target_crop_ha_values()) + input$legume1_ha + input$legume2_ha
     
     if (total_capacity >= total_target) {
       paste0("✓ Feasible — ", total_capacity, " ha of sowing capacity available for ",
@@ -252,18 +304,21 @@ server <- function(input, output, session) {
   
   
   output$setup_check <- renderText({
-    req(input$red_zone_excluded_crop)
+    req(input$red_zone_excluded_crop, target_crop_ha_values())
     red_zone_display <- if (input$red_zone_excluded_crop == "None") {
       "None (all crops allowed in Red zone)"
     } else {
       input$red_zone_excluded_crop
     }
     
+    crop_ha_display <- paste(names(target_crop_ha_values()), target_crop_ha_values(),
+                             sep = ": ", collapse = " | ")
+    
     paste0("Site: ", input$site_name,
            " | Cropping area: ", input$cropping_area_ha, " ha",
            " | Daily capacity: ", input$daily_capacity_ha, " ha/day",
            " | Zones: ", input$zone_green_pct, "/", input$zone_amber_pct, "/", input$zone_red_pct, "%",
-           " | Wheat: ", input$wheat_ha, " | Barley: ", input$barley_ha, " | Canola: ", input$canola_ha,
+           " | ", crop_ha_display,
            " | ", input$legume1_crop, ": ", input$legume1_ha,
            " | ", input$legume2_crop, ": ", input$legume2_ha,
            " | Red-zone excluded crop: ", red_zone_display)
@@ -300,7 +355,7 @@ server <- function(input, output, session) {
     zone_pct = c(Green = input$zone_green_pct / 100,
                  Amber = input$zone_amber_pct / 100,
                  Red = input$zone_red_pct / 100),
-    crop_targets = c(Wheat = input$wheat_ha, Barley = input$barley_ha, Canola = input$canola_ha),
+    crop_targets = target_crop_ha_values(),
     legume_targets = setNames(c(input$legume1_ha, input$legume2_ha),
                               c(input$legume1_crop, input$legume2_crop)),
     red_zone_excluded_crop = red_zone_final,
@@ -317,10 +372,16 @@ server <- function(input, output, session) {
   
   withProgress(message = "Running simulation...", value = 0, {
     
+    incProgress(0, detail = "Setting up model...")
+    
     deciles_total <- 3
     
-    result <- run_sowing_model(params, progress_callback = function(decile_done) {
-      incProgress(1 / deciles_total, detail = paste(decile_done, "complete"))
+    result <- run_sowing_model(params, progress_callback = function(decile_label, stage) {
+      if (stage == "starting") {
+        incProgress(1 / (deciles_total * 2), detail = paste("Building", decile_label, "model..."))
+      } else {
+        incProgress(1 / (deciles_total * 2), detail = paste(decile_label, "solved"))
+      }
     })
     
     model_result(result)

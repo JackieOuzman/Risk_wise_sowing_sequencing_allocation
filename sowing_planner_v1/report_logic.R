@@ -37,9 +37,11 @@ build_sowing_report <- function(result) {
   axis_start <- as.Date(run_summary$program_start_date[1])
   axis_end   <- axis_start + 110
   
-  crop_priority <- c("Wheat", "Barley", "Canola")
-  crop_order <- c(intersect(crop_priority, unique(all_plans$crop)),
-                  setdiff(unique(all_plans$crop), crop_priority))
+  crop_order <- all_plans %>%
+    group_by(crop) %>%
+    summarise(total_ha = sum(value), .groups = "drop") %>%
+    arrange(desc(total_ha)) %>%
+    pull(crop)
   
   # ===========================================================================
   # DECILE PLOT FUNCTION

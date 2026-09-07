@@ -80,8 +80,11 @@ run_sowing_model <- function(params, progress_callback = NULL) {
   
   for (target_decile in deciles_to_run) {
     
-    cat("\n=== Solving for decile:", target_decile, "===\n")
+    if (!is.null(progress_callback)) {
+      progress_callback(target_decile, stage = "solved")
+    }
     
+    cat("\n=== Solving for decile:", target_decile, "===\n")
     yield_d_step <- yield_long %>%
       filter(decile_band == target_decile,
              crop %in% active_crops,
