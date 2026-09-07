@@ -1,26 +1,20 @@
 # ===============================================================================
-# GRAIN PRICES AND VARIABLE COSTS — shared reference data
+# GRAIN PRICES AND VARIABLE COSTS — loaded from external file (no longer hardcoded)
 # ===============================================================================
 library(dplyr)
+library(tidyr)
+library(readr)
 
-grain_price_table <- tribble(
-  ~crop,     ~Low, ~Average, ~High,
-  "Wheat",    200,  315,      400,
-  "Barley",   200,  285,      380,
-  "Canola",   500,  700,      1100,
-  "Lentils",  500,  650,      1000,
-  "Beans",    400,  500,      700,
-  "Lupins",   200,  400,      600,
-  "Peas",     300,  400,      800
-)
+price_cost_file <- "input_commondity_variable_cost_long.csv"
 
-variable_cost_table <- tribble(
-  ~crop,     ~`D1-3`, ~`D4-6`, ~`D7-9`,
-  "Wheat",    284,     392,     473,
-  "Barley",   230,     339,     402,
-  "Canola",   324,     418,     469,
-  "Lentils",  241,     267,     312,
-  "Beans",    222,     238,     259,
-  "Lupins",   194,     221,     265,
-  "Peas",     184,     199,     214
-)
+price_cost_long <- read_csv(price_cost_file, show_col_types = FALSE)
+
+grain_price_table <- price_cost_long %>%
+  filter(varible_type == "commondity_price") %>%
+  select(crop, band, value) %>%
+  pivot_wider(names_from = band, values_from = value)
+
+variable_cost_table <- price_cost_long %>%
+  filter(varible_type == "variable_cost") %>%
+  select(crop, band, value) %>%
+  pivot_wider(names_from = band, values_from = value)
