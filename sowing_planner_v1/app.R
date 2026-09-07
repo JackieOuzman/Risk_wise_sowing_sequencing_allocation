@@ -46,8 +46,11 @@ ui <- navbarPage(
                              selected = "Average"))
     ),
     
+    textOutput("crop_price_cost_check"),
     h3("Grain prices and variable costs"),
+    
     tableOutput("price_cost_table_display"),
+    
     h3("Yield distribution by crop, zone, and decile"),
     plotOutput("yield_histogram", height = "700px")
   ),
@@ -164,6 +167,11 @@ server <- function(input, output, session) {
     }
   })
   
+  crop_metadata <- reactive({
+    req(yield_file_current())
+    yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
+    distinct(yield_long, crop, `Crop type`)
+  })
   
   output$zone_pct_check <- renderText({
     total_pct <- input$zone_green_pct + input$zone_amber_pct + input$zone_red_pct
@@ -447,6 +455,20 @@ server <- function(input, output, session) {
                          "D1-3 ($/ha)", "D4-6 ($/ha)", "D7-9 ($/ha)")
     combined
   }, digits = 0)
+  
+  output$crop_price_cost_check <- renderText({
+    yield_crops <- crop_metadata()$crop
+    missing_price <- setdiff(yield_crops, grain_price_table$crop)
+    missing_cost  <- setdiff(yield_crops, variable_cost_table$crop)
+    missing_any   <- union(missing_price, missing_cost)
+    
+    if (length(missing_any) == 0) {
+      paste0("✓ All ", length(yield_crops), " crops in the yield file have matching price and cost data")
+    } else {
+      paste0("✗ Missing price/cost data for: ", paste(missing_any, collapse = ", "),
+             " — add these to input_commondity_variable_cost_long.csv before running")
+    }
+  })
   
   output$yield_histogram <- renderPlot({
     yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
