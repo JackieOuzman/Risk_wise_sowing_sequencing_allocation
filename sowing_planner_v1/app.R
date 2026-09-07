@@ -27,11 +27,31 @@ ui <- navbarPage(
   tabPanel(
     "Input Data",
     h2("Input Data"),
+    
+    h3("Files"),
+    selectInput("yield_file_choice", "Yield input file",
+                choices = c("Baseline" = "EP_yld_long_format.xlsx",
+                            "Mock/Test scenario" = "EP_yld_long_format_MOCK.xlsx",
+                            "Upload my own file..." = "custom")),
+    conditionalPanel(
+      condition = "input.yield_file_choice == 'custom'",
+      fileInput("yield_file_upload", "Upload yield file (.xlsx)", accept = ".xlsx")
+    ),
+    textOutput("yield_file_display"),
+    
+    h3("Economics"),
+    fluidRow(
+      column(12, selectInput("price_scenario", "Grain price scenario",
+                             choices = c("Low", "Average", "High"),
+                             selected = "Average"))
+    ),
+    
     h3("Grain prices and variable costs"),
     tableOutput("price_cost_table_display"),
     h3("Yield distribution by crop, zone, and decile"),
     plotOutput("yield_histogram", height = "700px")
   ),
+    
   # --- TAB 3: SETUP -----------------------------------------------------------
   tabPanel(
     "Setup",
@@ -94,26 +114,6 @@ ui <- navbarPage(
               value = "2026-04-08",
               min = "2026-04-08", max = "2026-07-17"),
     textOutput("feasibility_check"),
-    
-   
-    
-    h3("Economics"),
-    fluidRow(
-      column(12, selectInput("price_scenario", "Grain price scenario",
-                             choices = c("Low", "Average", "High"),
-                             selected = "Average"))
-    ),
-    
-    h3("Files"),
-    selectInput("yield_file_choice", "Yield input file",
-                choices = c("Baseline" = "EP_yld_long_format.xlsx",
-                            "Mock/Test scenario" = "EP_yld_long_format_MOCK.xlsx",
-                            "Upload my own file..." = "custom")),
-    conditionalPanel(
-      condition = "input.yield_file_choice == 'custom'",
-      fileInput("yield_file_upload", "Upload yield file (.xlsx)", accept = ".xlsx")
-    ),
-    textOutput("yield_file_display"),
     
     verbatimTextOutput("setup_check"),
     
@@ -441,8 +441,12 @@ server <- function(input, output, session) {
   )
   
   output$price_cost_table_display <- renderTable({
-    grain_price_table %>% left_join(variable_cost_table, by = "crop")
-  })
+    combined <- grain_price_table %>% left_join(variable_cost_table, by = "crop")
+    names(combined) <- c("Crop",
+                         "Low ($/t)", "Average ($/t)", "High ($/t)",
+                         "D1-3 ($/ha)", "D4-6 ($/ha)", "D7-9 ($/ha)")
+    combined
+  }, digits = 0)
   
   output$yield_histogram <- renderPlot({
     yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
@@ -450,9 +454,8 @@ server <- function(input, output, session) {
     ggplot(yield_long, aes(x = yield_t_per_ha, colour = decile_band, fill = decile_band)) +
       geom_density(alpha = 0.3, linewidth = 0.8) +
       facet_grid(frost_zone ~ crop, scales = "free") +
-      labs(title = "Yield distribution by crop, zone, and decile",
-           x = "Yield (t/ha)", y = "Density", fill = "Decile", colour = "Decile") +
-      theme_minimal(base_size = 11)
+      labs(x = "Yield (t/ha)", y = "Density", fill = "Decile", colour = "Decile") +
+      theme_minimal(base_size = 18)
   })
   
 }
