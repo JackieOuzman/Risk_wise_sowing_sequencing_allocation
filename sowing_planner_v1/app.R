@@ -243,6 +243,8 @@ server <- function(input, output, session) {
     req(target_crop_ha_values())
     total_crop_ha <- sum(target_crop_ha_values()) + input$legume1_ha + input$legume2_ha
     if (total_crop_ha == input$cropping_area_ha) {
+      paste0("✓ Crop targets sum to ", total_crop_ha, " ha, matching cropping area")
+    } else if (total_crop_ha < input$cropping_area_ha) {
       paste0("Crop targets sum to ", total_crop_ha, " ha — ",
              input$cropping_area_ha - total_crop_ha, " ha of the farm left unallocated")
     } else {
@@ -250,7 +252,6 @@ server <- function(input, output, session) {
              input$cropping_area_ha, " ha) by ", total_crop_ha - input$cropping_area_ha, " ha")
     }
   })
-  
   
   output$red_zone_crop_ui <- renderUI({
     req(target_crop_ha_values())
@@ -273,10 +274,7 @@ server <- function(input, output, session) {
     }
   })
   
-  output$output_folder_display <- renderText({
-    sim_folder <- file.path(input$output_base_folder, input$simulation_name)
-    paste0("Outputs will be saved to: ", sim_folder)
-  })
+ 
   
   output$feasibility_check <- renderText({
     window_date <- as.Date(c(
@@ -480,7 +478,7 @@ server <- function(input, output, session) {
     ggplot(combined, aes(x = decile, y = .data[[input$compare_metric]], fill = simulation_name)) +
       geom_col(position = "dodge") +
       labs(title = paste(y_label, "by decile and simulation"), x = "Decile", y = y_label, fill = "Simulation") +
-      theme_minimal(base_size = 12)
+      theme_minimal(base_size = 18)
   })
   
   output$compare_descriptions <- renderText({

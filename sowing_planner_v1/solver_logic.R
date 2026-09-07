@@ -81,7 +81,7 @@ run_sowing_model <- function(params, progress_callback = NULL) {
   for (target_decile in deciles_to_run) {
     
     if (!is.null(progress_callback)) {
-      progress_callback(target_decile, stage = "solved")
+      progress_callback(target_decile, stage = "starting")
     }
     
     cat("\n=== Solving for decile:", target_decile, "===\n")
@@ -103,9 +103,7 @@ run_sowing_model <- function(params, progress_callback = NULL) {
       yield_array[ci, zi, wi] <- yield_matrix[paste(crops[ci], zones[zi]), as.character(weeks[wi])]
     }
     
-    get_yield <- function(c, z, w) {
-      yield_array[cbind(c, z, w)]
-    }
+   
     
     if (sum(is.na(yield_array)) > 0) stop(paste("Missing yield lookups for", target_decile))
     
@@ -185,7 +183,7 @@ run_sowing_model <- function(params, progress_callback = NULL) {
     if (result$status != "success") { cat("SKIPPING", target_decile, "\n"); next }
     
     if (!is.null(progress_callback)) {
-      progress_callback(target_decile)
+      progress_callback(target_decile, stage = "solved")
     }
     
     ha_solution <- get_solution(result, ha[c, z, w])
