@@ -19,6 +19,7 @@ sanitize_crop_id <- function(crop) make.names(crop)
 # ===============================================================================
 ui <- navbarPage(
   title = "Sowing Schedule Planner",
+  fillable = FALSE,
   
   # --- TAB 1: GUIDE -------------------------------------------------------------
   tabPanel(
