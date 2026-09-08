@@ -161,10 +161,10 @@ run_sowing_model <- function(params, progress_callback = NULL) {
       }
     }
     
-    if (!is.na(params$red_zone_excluded_crop)) {
+    if (length(params$red_zone_excluded_crop) > 0) {
       model <- model %>%
         add_constraint(ha[c, z, w] == 0, c = 1:n_crops, z = 1:n_zones, w = 1:n_weeks,
-                       zones[z] == "Red", crops[c] == params$red_zone_excluded_crop)
+                       zones[z] == "Red", crops[c] %in% params$red_zone_excluded_crop)
     }
     
     terms_expr <- list()
@@ -191,6 +191,8 @@ run_sowing_model <- function(params, progress_callback = NULL) {
     ha_solution$zone <- zones[ha_solution$z]
     ha_solution$week <- weeks[ha_solution$w]
     
+    ha_solution$value[ha_solution$value < 1e-6] <- 0
+    
     total_expected_yield <- sum(sapply(1:nrow(ha_solution), function(i) {
       yield_array[ha_solution$c[i], ha_solution$z[i], ha_solution$w[i]] * ha_solution$value[i]
     }))
@@ -199,7 +201,7 @@ run_sowing_model <- function(params, progress_callback = NULL) {
     }))
     cat(target_decile, "— Expected yield:", total_expected_yield, "t | Expected GM: $", total_expected_gm, "\n")
     
-    sowing_plan <- ha_solution[ha_solution$value > 0, c("crop", "zone", "week", "value")]
+    sowing_plan <- ha_solution[ha_solution$value > 1e-6, c("crop", "zone", "week", "value")]
     sowing_plan <- sowing_plan[order(sowing_plan$crop, sowing_plan$week), ]
     sowing_plan_dated <- sowing_plan %>% left_join(active_calendar[, c("week", "date")], by = "week")
     
@@ -235,7 +237,8 @@ run_sowing_model <- function(params, progress_callback = NULL) {
       zone_green_ha = zone_ha["Green"],
       zone_amber_ha = zone_ha["Amber"],
       zone_red_ha = zone_ha["Red"],
-      red_zone_excluded_crop = ifelse(is.na(params$red_zone_excluded_crop), "None", params$red_zone_excluded_crop),
+      red_zone_excluded_crop = if (length(params$red_zone_excluded_crop) == 0) "None" else paste(params$red_zone_excluded_crop, collapse = ", "),
+      
       total_ha_sown = sum(sowing_plan$value),
       optimise_for = params$optimise_for,
       price_scenario = params$price_scenario,
@@ -263,7 +266,7 @@ run_sowing_model <- function(params, progress_callback = NULL) {
             row.names = FALSE)
   
   optimise_label <- if (params$optimise_for == "gm") "Gross Margin" else "Yield"
-  red_zone_label <- if (is.na(params$red_zone_excluded_crop)) "None" else params$red_zone_excluded_crop
+  red_zone_label <- if (length(params$red_zone_excluded_crop) == 0) "None" else paste(params$red_zone_excluded_crop, collapse = ", ")
   
   crop_summary <- paste(names(crop_targets_final), crop_targets_final, sep = "=", collapse = ", ")
   

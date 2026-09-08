@@ -2,6 +2,9 @@
 # SOWING SCHEDULE PLANNER — SHINY APP (skeleton)
 # ===============================================================================
 library(shiny)
+#install.packages("gt")
+library(gt)
+library(scales)
 
 source("solver_logic.R")
 source("report_logic.R")
@@ -56,9 +59,12 @@ ui <- navbarPage(
     tableOutput("price_cost_table_display"),
     
     h3("Yield distribution by crop, zone, and decile"),
-    plotOutput("yield_histogram", height = "700px")
+    plotOutput("yield_histogram", height = "700px"),
+    h3("Yield heatmap"),
+    uiOutput("heatmap_crop_ui"),
+    gt_output("yield_heatmap")
   ),
-    
+  
   # --- TAB 3: SETUP -----------------------------------------------------------
   tabPanel(
     "Setup",
@@ -169,6 +175,12 @@ server <- function(input, output, session) {
     }
   })
   
+  output$heatmap_crop_ui <- renderUI({
+    choices <- all_crops_list()
+    req(length(choices) > 0)
+    selectInput("heatmap_crop", "Crop", choices = choices, selected = choices[1])
+  })
+  
   crop_metadata <- reactive({
     req(yield_file_current())
     yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
@@ -194,6 +206,11 @@ server <- function(input, output, session) {
                    selected = choices[seq_len(min(length(choices), MAX_TARGET_CROPS))],
                    multiple = TRUE,
                    options = list(maxItems = MAX_TARGET_CROPS))
+  })
+  
+  all_crops_list <- reactive({
+    req(crop_metadata())
+    sort(crop_metadata()$crop)
   })
   
   target_crop_ha_values <- reactive({
@@ -261,8 +278,9 @@ server <- function(input, output, session) {
     
     active_crops <- names(all_crops[all_crops > 0])
     
-    selectInput("red_zone_excluded_crop", "Crop excluded from Red zone",
-                choices = c("None", active_crops))
+    selectizeInput("red_zone_excluded_crop", "Crops excluded from Red zone (choose up to 2)",
+                   choices = active_crops, multiple = TRUE,
+                   options = list(maxItems = 2, placeholder = "None — leave empty to allow all crops"))
   })
   
   output$yield_file_display <- renderText({
@@ -302,11 +320,11 @@ server <- function(input, output, session) {
   
   
   output$setup_check <- renderText({
-    req(input$red_zone_excluded_crop, target_crop_ha_values())
-    red_zone_display <- if (input$red_zone_excluded_crop == "None") {
+    req(target_crop_ha_values())
+    red_zone_display <- if (length(input$red_zone_excluded_crop) == 0) {
       "None (all crops allowed in Red zone)"
     } else {
-      input$red_zone_excluded_crop
+      paste(input$red_zone_excluded_crop, collapse = ", ")
     }
     
     crop_ha_display <- paste(names(target_crop_ha_values()), target_crop_ha_values(),
@@ -339,11 +357,11 @@ server <- function(input, output, session) {
   
     yield_file_path <- yield_file_current()
   
-  red_zone_final <- if (input$red_zone_excluded_crop == "None") {
-    NA
-  } else {
-    input$red_zone_excluded_crop
-  }
+    red_zone_final <- if (is.null(input$red_zone_excluded_crop)) {
+      character(0)
+    } else {
+      input$red_zone_excluded_crop
+    }
   
   params <- list(
     site_name = input$site_name,
@@ -528,6 +546,53 @@ server <- function(input, output, session) {
              " — add these to input_commondity_variable_cost_long.csv before running")
     }
   })
+  
+  output$yield_heatmap <- render_gt({
+    req(input$heatmap_crop, yield_file_current())
+    yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
+    
+    heatmap_data <- yield_long %>%
+      filter(crop == input$heatmap_crop) %>%
+      mutate(week_label = format(as.Date(sowing_window), "%d %b"),
+             month_label = format(as.Date(sowing_window), "%B"),
+             decile_band = factor(decile_band, levels = c("D1-3", "D4-6", "D7-9")),
+             frost_zone = factor(frost_zone, levels = c("Green", "Amber", "Red"))) %>%
+      arrange(`week of sowing program window`)
+    
+    week_lookup <- heatmap_data %>%
+      distinct(`week of sowing program window`, week_label, month_label) %>%
+      arrange(`week of sowing program window`)
+    week_order <- week_lookup$week_label
+    
+    wide <- heatmap_data %>%
+      select(decile_band, frost_zone, week_label, yield_t_per_ha) %>%
+      pivot_wider(names_from = week_label, values_from = yield_t_per_ha) %>%
+      arrange(decile_band, frost_zone) %>%
+      select(decile_band, frost_zone, all_of(week_order))
+    
+    tbl <- wide %>%
+      gt(rowname_col = "frost_zone", groupname_col = "decile_band") %>%
+      fmt_number(columns = all_of(week_order), decimals = 2)
+    
+    for (i in seq_len(nrow(wide))) {
+      row_vals <- as.numeric(wide[i, week_order])
+      tbl <- tbl %>%
+        data_color(columns = all_of(week_order), rows = i,
+                   colors = col_numeric(palette = c("red", "yellow", "forestgreen"),
+                                        domain = range(row_vals, na.rm = TRUE)))
+    }
+    
+    month_runs <- rle(week_lookup$month_label)
+    col_pos <- 1
+    for (j in seq_along(month_runs$lengths)) {
+      cols_this_month <- week_order[col_pos:(col_pos + month_runs$lengths[j] - 1)]
+      tbl <- tbl %>% tab_spanner(label = month_runs$values[j], columns = all_of(cols_this_month))
+      col_pos <- col_pos + month_runs$lengths[j]
+    }
+    
+    tbl
+  })
+ 
   
   output$yield_histogram <- renderPlot({
     yield_long <- read_excel(yield_file_current(), sheet = "Yield data long format")
