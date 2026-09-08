@@ -59,7 +59,7 @@ ui <- navbarPage(
     tableOutput("price_cost_table_display"),
     
     h3("Yield distribution by crop, zone, and decile"),
-    plotOutput("yield_histogram", height = "75vh", width = "100%"),
+    plotOutput("yield_histogram", height = "900px", width = "100%"),
     h3("Yield heatmap"),
     uiOutput("heatmap_crop_ui"),
     gt_output("yield_heatmap")
@@ -605,7 +605,12 @@ server <- function(input, output, session) {
       facet_grid(frost_zone ~ crop, scales = "free") +
       labs(x = "Yield (t/ha)", y = "Density", fill = "Decile", colour = "Decile") +
       theme_minimal(base_size = dynamic_base_size)
-  }, res = 96)
+  }, res = 96,
+  height = function() {
+    w <- session$clientData$output_yield_histogram_width
+    if (is.null(w) || is.na(w) || w <= 0) w <- 900
+    min(900, max(400, w * 0.6))
+  })
   
 }
 
