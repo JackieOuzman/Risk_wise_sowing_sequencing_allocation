@@ -574,6 +574,148 @@ ggplot(wheat_compare_data, aes(x = crop, y = Decile, fill = yield)) +
 ggsave(file.path(bundle_dir, "plot_wheat_comparison_compact.png"), width = 7, height = 6, dpi = 300, bg = "white")
 
 
+### Heat map again 
+
+library(tidyverse)
+library(readxl)
+
+yield_file <- "D:/work/RiskWise/early_sowing/Tool/sowing_planner_v1/EP_yld_long_format.xlsx"
+yield_long <- read_excel(yield_file, sheet = "Yield data long format")
+
+heatmap_data <- yield_long %>%
+  filter(crop %in% c("Wheat", "Early wheat")) %>%
+  mutate(crop = factor(crop, levels = c("Wheat", "Early wheat")),
+         frost_zone = factor(frost_zone, levels = c("Green", "Amber", "Red")),
+         decile_band = factor(decile_band, levels = c("D1-3", "D4-6", "D7-9")),
+         row_label = paste(decile_band, frost_zone, sep = " - "),
+         week_label = format(as.Date(sowing_window), "%d %b")) %>%
+  arrange(`week of sowing program window`) %>%
+  mutate(week_label = fct_inorder(week_label))
+
+row_order <- heatmap_data %>%
+  distinct(decile_band, frost_zone, row_label) %>%
+  arrange(decile_band, frost_zone) %>%
+  pull(row_label)
+heatmap_data <- heatmap_data %>% mutate(row_label = factor(row_label, levels = rev(row_order)))
+
+# --- Bold flag: Early wheat higher than Wheat, same date/decile/zone ---
+wide_compare <- heatmap_data %>%
+  select(decile_band, frost_zone, week_label, crop, yield_t_per_ha) %>%
+  pivot_wider(names_from = crop, values_from = yield_t_per_ha) %>%
+  mutate(early_wheat_higher = `Early wheat` > Wheat)
+
+heatmap_data <- heatmap_data %>%
+  left_join(wide_compare %>% select(decile_band, frost_zone, week_label, early_wheat_higher),
+            by = c("decile_band", "frost_zone", "week_label")) %>%
+  mutate(is_bold = crop == "Early wheat" & early_wheat_higher,
+         fontface_lab = if_else(is_bold, "bold", "plain"))
+
+# --- Selected-cell lookup, built from the actual sowing plans ---
+selections <- tribble(
+  ~crop, ~scenario, ~decile_band, ~frost_zone, ~week_num,
+  "Wheat", "Baseline", "D1-3", "Green", 2,
+  "Wheat", "Baseline", "D1-3", "Green", 3,
+  "Wheat", "Baseline", "D1-3", "Amber", 3,
+  "Wheat", "Baseline", "D4-6", "Green", 2,
+  "Wheat", "Baseline", "D4-6", "Amber", 2,
+  "Wheat", "Baseline", "D7-9", "Green", 3,
+  "Wheat", "Baseline", "D7-9", "Amber", 3,
+  "Wheat", "+Early wheat", "D1-3", "Green", 3,
+  "Wheat", "+Early wheat", "D4-6", "Green", 2,
+  "Wheat", "+Early wheat", "D7-9", "Green", 3,
+  "Wheat", "+Early wheat", "D7-9", "Amber", 3,
+  "Early wheat", "+Early wheat", "D1-3", "Amber", 4,
+  "Early wheat", "+Early wheat", "D4-6", "Amber", 4,
+  "Early wheat", "+Early wheat", "D7-9", "Amber", 4
+) %>%
+  left_join(heatmap_data %>% distinct(decile_band, frost_zone, row_label), by = c("decile_band", "frost_zone")) %>%
+  left_join(heatmap_data %>% distinct(`week of sowing program window`, week_label) %>%
+              rename(week_num = `week of sowing program window`), by = "week_num") %>%
+  mutate(crop = factor(crop, levels = c("Wheat", "Early wheat")))
+
+ggplot(heatmap_data, aes(x = week_label, y = row_label, fill = yield_t_per_ha)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_text(aes(label = sprintf("%.1f", yield_t_per_ha), fontface = fontface_lab), size = 4.2) +
+  geom_tile(data = filter(selections, scenario == "Baseline"),
+            aes(x = week_label, y = row_label), inherit.aes = FALSE,
+            fill = NA, color = "#0C447C", linewidth = 1.4) +
+  geom_tile(data = filter(selections, scenario == "+Early wheat"),
+            aes(x = week_label, y = row_label), inherit.aes = FALSE,
+            fill = NA, color = "black", linetype = "dashed", linewidth = 1.4) +
+  facet_wrap(~ crop, ncol = 2) +
+  scale_fill_distiller(palette = "RdYlGn", direction = 1, name = "Yield (t/ha)") +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold", size = 16),
+        panel.grid = element_blank(),
+        legend.position = "bottom",
+        legend.key.width = unit(1.5, "cm"))
+
+ggsave(file.path(bundle_dir, "plot_wheat_comparison_heatmap_annotated.png"), width = 14, height = 7, dpi = 300, bg = "white")
+
+### maybe a line graph?
+
+library(tidyverse)
+library(readxl)
+
+yield_file <- "D:/work/RiskWise/early_sowing/Tool/sowing_planner_v1/EP_yld_long_format.xlsx"
+yield_long <- read_excel(yield_file, sheet = "Yield data long format")
+
+
+week_dates <- tibble(
+  `week of sowing program window` = 1:11,
+  date_label = c("08 Apr","18 Apr","28 Apr","08 May","18 May","28 May",
+                 "07 Jun","17 Jun","27 Jun","07 Jul","17 Jul")
+)
+
+line_data <- line_data %>%
+  left_join(week_dates, by = "week of sowing program window")
+
+ggplot(line_data, aes(x = `week of sowing program window`, y = yield_t_per_ha, color = crop)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 2.3) +
+  facet_grid(frost_zone ~ decile_band) +
+  scale_x_continuous(breaks = week_dates$`week of sowing program window`,
+                     labels = week_dates$date_label) +
+  scale_color_manual(values = c("Wheat" = "#378ADD", "Early wheat" = "#00304D")) +
+  labs(x = NULL, y = "Yield (t/ha)", color = "Crop") +
+  theme_minimal(base_size = 20) +
+  theme(strip.text = element_text(face = "bold", size = 20),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+        axis.text.y = element_text(size = 16),
+        axis.title.y = element_text(size = 18),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 18),
+        legend.position = "bottom")
+
+ggsave(file.path(bundle_dir, "plot_wheat_comparison_zonegrid.png"), width = 15, height = 11, dpi = 300, bg = "white")
+
+
+red_only <- line_data %>% filter(frost_zone == "Red")
+
+ggplot(red_only, aes(x = `week of sowing program window`, y = yield_t_per_ha, color = crop)) +
+  geom_line(linewidth = 1.6) +
+  geom_point(size = 3) +
+  facet_wrap(~ decile_band, nrow = 1) +
+  scale_x_continuous(breaks = week_dates$`week of sowing program window`,
+                     labels = week_dates$date_label) +
+  scale_color_manual(values = c("Wheat" = "#378ADD", "Early wheat" = "#00304D")) +
+  labs(x = NULL, y = "Yield (t/ha)", color = "Crop") +
+  theme_minimal(base_size = 22) +
+  theme(strip.text = element_text(face = "bold", size = 24),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
+        axis.text.y = element_text(size = 18),
+        axis.title.y = element_text(size = 20),
+        legend.text = element_text(size = 18),
+        legend.title = element_text(size = 20),
+        legend.position = "bottom")
+
+ggsave(file.path(bundle_dir, "plot_wheat_comparison_redzone.png"), width = 13, height = 6, dpi = 300, bg = "white")
+
+
 ###############################################################################
 ### Excluding crops 
 
