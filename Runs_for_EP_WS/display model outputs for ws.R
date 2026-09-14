@@ -36,16 +36,7 @@ scenario_manifest <- tribble(
 
 
 
-scenario_manifest <- scenario_manifest %>% 
-  filter(group != "new_crop") %>%  # drop the old Sc1b-based new_crop rows
-  bind_rows(scenario_manifest_new_crop)
 
-# Re-run to pick up the new bundle
-unique_bundles <- unique(scenario_manifest$zip_file)
-run_data <- map_dfr(unique_bundles, read_run_summary)
-plot_data <- scenario_manifest %>%
-  left_join(run_data, by = c("zip_file", "optimise_for")) %>%
-  mutate(decile = factor(decile, levels = c("D1-3", "D4-6", "D7-9")))
 
 # Where to unzip each bundle to (one subfolder per zip)
 unzip_dir <- file.path(bundle_dir, "unzipped")
@@ -355,17 +346,17 @@ week_dates <- tibble(
                  "07 Jun","17 Jun","27 Jun","07 Jul","17 Jul")
 )
 
-read_plan <- function(zip_folder, scenario_name) {
+read_plan <- function(zip_folder, scenario_name, decile = "D1-3") {
   file <- list.files(file.path(bundle_dir, "unzipped", zip_folder), 
-                     pattern = "sowing_plan_D1-3\\.csv$", full.names = TRUE)
+                     pattern = paste0("sowing_plan_", decile, "\\.csv$"), full.names = TRUE)
   read_csv(file, show_col_types = FALSE) %>%
     mutate(scenario = scenario_name)
 }
 
 gantt_data <- bind_rows(
-  read_plan("baseline_opt_GM_report_bundle", "Early start (8 Apr)"),
-  read_plan("Sc4a_Mid_start_opt_GM_report_bundle", "Mid start (18 May)"),
-  read_plan("Sc4b_late_OptGM_report_bundle", "Late start (27 Jun)")
+  read_plan("baseline_opt_GM_report_bundle", "Early start (8 Apr)", decile = "D4-6"),
+  read_plan("Sc4a_Mid_start_opt_GM_report_bundle", "Mid start (18 May)", decile = "D4-6"),
+  read_plan("Sc4b_late_OptGM_report_bundle", "Late start (27 Jun)", decile = "D4-6")
 ) %>%
   mutate(scenario = factor(scenario, levels = c("Early start (8 Apr)", "Mid start (18 May)", "Late start (27 Jun)")),
          crop = factor(crop, levels = c("Lentils", "Canola", "Barley", "Wheat")),
@@ -398,7 +389,7 @@ ggplot(gantt_data) +
         strip.text = element_text(face = "bold", size = 18),
         legend.position = "bottom")
 
-ggsave(file.path(bundle_dir, "table_timing_gantt_compact.png"), width = 13, height = 9, dpi = 300, bg = "white")
+ggsave(file.path(bundle_dir, "table_timing_gantt_compact decile 4-6.png"), width = 13, height = 9, dpi = 300, bg = "white")
 
 
 ###############################################################################
@@ -471,16 +462,16 @@ ggsave(file.path(bundle_dir, "plot_04_new_crop_gain.png"), width = 9, height = 5
 
 ### But why?
 
-read_plan_new_crop <- function(zip_folder, scenario_name) {
+read_plan_new_crop <- function(zip_folder, scenario_name, decile = "D1-3") {
   file <- list.files(file.path(bundle_dir, "unzipped", zip_folder), 
-                     pattern = "sowing_plan_D1-3\\.csv$", full.names = TRUE)
+                     pattern = paste0("sowing_plan_", decile, "\\.csv$"), full.names = TRUE)
   read_csv(file, show_col_types = FALSE) %>%
     mutate(scenario = scenario_name)
 }
 
 gantt_new_crop <- bind_rows(
-  read_plan_new_crop("baseline_opt_GM_report_bundle", "Baseline (Wheat only)"),
-  read_plan_new_crop("Sc5b_Early_Wheat_NoEx_OptGM_report_bundle", "+ Early wheat")
+  read_plan_new_crop("baseline_opt_GM_report_bundle", "Baseline (Wheat only)", decile = "D4-6"),
+  read_plan_new_crop("Sc5b_Early_Wheat_NoEx_OptGM_report_bundle", "+ Early wheat", decile = "D4-6")
 ) %>%
   mutate(scenario = factor(scenario, levels = c("Baseline (Wheat only)", "+ Early wheat")),
          crop = factor(crop, levels = c("Lentils", "Canola", "Barley", "Early wheat", "Wheat")),
@@ -513,7 +504,7 @@ ggplot(gantt_new_crop) +
         strip.text = element_text(face = "bold", size = 18),
         legend.position = "bottom")
 
-ggsave(file.path(bundle_dir, "table_new_crop_gantt.png"), width = 13, height = 7, dpi = 300, bg = "white")
+ggsave(file.path(bundle_dir, "table_new_crop_gantt Decile 4-6.png"), width = 13, height = 7, dpi = 300, bg = "white")
 
 ### supportng yld 
 library(tidyverse)
@@ -791,3 +782,111 @@ ggplot(gantt_redzone) +
         legend.position = "bottom")
 
 ggsave(file.path(bundle_dir, "plot_05_redzone_gantt.png"), width = 11, height = 5, dpi = 300, bg = "white")
+
+
+
+###############################################################################
+### Full list of GM by crop and sowing date
+###############################################################################
+
+
+library(tidyverse)
+library(gt)
+library(readxl)
+library(scales)
+
+yield_file <- "D:/work/RiskWise/early_sowing/Tool/sowing_planner_v1/EP_yld_long_format.xlsx"
+yield_long <- read_excel(yield_file, sheet = "Yield data long format")
+
+price <- c(Wheat = 315, Barley = 285, Canola = 700, Lentils = 650)
+vc_d46 <- c(Wheat = 392, Barley = 339, Canola = 418, Lentils = 267)
+
+gm_data <- yield_long %>%
+  filter(crop %in% c("Wheat", "Barley", "Canola", "Lentils"), decile_band == "D4-6") %>%
+  mutate(crop = factor(crop, levels = c("Wheat", "Barley", "Canola", "Lentils")),
+         frost_zone = factor(frost_zone, levels = c("Green", "Amber", "Red")),
+         gm_per_ha = round(yield_t_per_ha * price[crop] - vc_d46[crop]),
+         week_label = format(as.Date(sowing_window), "%d %b"),
+         month_label = format(as.Date(sowing_window), "%B")) %>%
+  arrange(`week of sowing program window`) %>%
+  mutate(week_label = fct_inorder(week_label))
+
+week_order <- gm_data %>% distinct(`week of sowing program window`, week_label, month_label) %>%
+  arrange(`week of sowing program window`)
+
+wide <- gm_data %>%
+  select(crop, frost_zone, week_label, gm_per_ha) %>%
+  pivot_wider(names_from = week_label, values_from = gm_per_ha) %>%
+  arrange(crop, frost_zone) %>%
+  select(crop, frost_zone, all_of(week_order$week_label))
+
+tbl <- wide %>%
+  gt(rowname_col = "frost_zone", groupname_col = "crop") %>%
+  fmt_currency(columns = all_of(week_order$week_label), decimals = 0) %>%
+  tab_header(title = "Dry Sowing Decision \u2014 Gross Margin ($/ha)", subtitle = "Decile 4-6") %>%
+  tab_options(table.font.size = px(14), heading.title.font.size = px(22),
+              heading.subtitle.font.size = px(16), row_group.font.weight = "bold")
+
+for (i in seq_len(nrow(wide))) {
+  row_vals <- as.numeric(wide[i, week_order$week_label])
+  tbl <- tbl %>%
+    data_color(columns = all_of(week_order$week_label), rows = i,
+               colors = col_numeric(palette = c("#A32D2D", "#FFC107", "#639922"),
+                                    domain = range(row_vals, na.rm = TRUE)))
+}
+
+month_runs <- rle(week_order$month_label)
+col_pos <- 1
+for (j in seq_along(month_runs$lengths)) {
+  cols_this_month <- week_order$week_label[col_pos:(col_pos + month_runs$lengths[j] - 1)]
+  tbl <- tbl %>% tab_spanner(label = month_runs$values[j], columns = all_of(cols_this_month))
+  col_pos <- col_pos + month_runs$lengths[j]
+}
+
+gtsave(tbl, filename = file.path(bundle_dir, "table_gm_by_crop_zone_week_D46.png"), vwidth = 1600, vheight = 900)
+
+
+
+################################################################################
+## all green zones no red or amber 
+################################################################################
+
+scenario_manifest_green_zone <- tribble(
+  ~zip_file,                                ~scenario_label,        ~group,        ~optimise_for,
+  "baseline_opt_GM_report_bundle.zip",       "Baseline (50/30/20)",  "green_zone",  "gm",
+  "All_green_zone_report_bundle.zip",        "All-Green (100/0/0)",  "green_zone",  "gm"
+)
+
+scenario_manifest <- scenario_manifest %>% 
+  filter(group != "green_zone") %>% 
+  bind_rows(scenario_manifest_green_zone)
+
+unique_bundles <- unique(scenario_manifest$zip_file)
+run_data <- map_dfr(unique_bundles, read_run_summary)
+plot_data <- scenario_manifest %>%
+  left_join(run_data, by = c("zip_file", "optimise_for")) %>%
+  mutate(decile = factor(decile, levels = c("D1-3", "D4-6", "D7-9")))
+
+plot_data %>% filter(is.na(expected_gm_dollars))
+
+green_zone_data <- plot_data %>%
+  filter(group == "green_zone", optimise_for == "gm") %>%
+  mutate(scenario_label = factor(scenario_label, levels = c("Baseline (50/30/20)", "All-Green (100/0/0)")))
+
+ggplot(green_zone_data, aes(x = scenario_label, y = expected_gm_dollars, fill = scenario_label)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = scales::dollar(round(expected_gm_dollars, -3), scale = 1e-6, suffix = "M")),
+            vjust = -0.5, size = 4.5) +
+  facet_wrap(~ decile, nrow = 1) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_manual(values = c("Baseline (50/30/20)" = "#3E8FC4", "All-Green (100/0/0)" = "#00304D")) +
+  labs(x = NULL, y = "Expected GM ($M)", fill = NULL) +
+  theme_minimal(base_size = 18) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = rel(0.75)),
+        panel.grid.major.x = element_blank(), panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(), axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        strip.text = element_text(face = "bold"))
+
+ggsave(file.path(bundle_dir, "plot_06_green_zone.png"), width = 10, height = 5.5, dpi = 300, bg = "white")
