@@ -890,3 +890,42 @@ ggplot(green_zone_data, aes(x = scenario_label, y = expected_gm_dollars, fill = 
         strip.text = element_text(face = "bold"))
 
 ggsave(file.path(bundle_dir, "plot_06_green_zone.png"), width = 10, height = 5.5, dpi = 300, bg = "white")
+
+################################################################################
+
+gantt_green_zone <- bind_rows(
+  read_plan("baseline_opt_GM_report_bundle", "Baseline (50/30/20)", decile = "D4-6"),
+  read_plan("All_green_zone_report_bundle", "All-Green (100/0/0)", decile = "D4-6")
+) %>%
+  mutate(scenario = factor(scenario, levels = c("Baseline (50/30/20)", "All-Green (100/0/0)")),
+         crop = factor(crop, levels = c("Lentils", "Canola", "Barley", "Wheat")),
+         zone = factor(zone, levels = c("Green", "Amber", "Red")),
+         crop_num = as.numeric(crop)) %>%
+  group_by(scenario, crop, week) %>%
+  mutate(n_segments = n(),
+         seg_index = row_number(),
+         seg_width = 1 / n_segments,
+         xmin = week + (seg_index - 1) * seg_width,
+         xmax = xmin + seg_width) %>%
+  ungroup()
+
+ggplot(gantt_green_zone) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = crop_num - 0.4, ymax = crop_num + 0.4, fill = zone),
+            color = "white", linewidth = 1) +
+  geom_text(aes(x = (xmin + xmax) / 2, y = crop_num, label = value),
+            size = 4.5, fontface = "bold", color = "white") +
+  facet_wrap(~ scenario, ncol = 1) +
+  scale_x_continuous(breaks = week_dates$`week of sowing program window`, labels = week_dates$date_label,
+                     limits = c(1, 12), expand = c(0, 0)) +
+  scale_y_continuous(breaks = 1:4, labels = levels(gantt_green_zone$crop), limits = c(0.5, 4.5)) +
+  scale_fill_manual(values = c("Green" = "#639922", "Amber" = "#FFC107", "Red" = "#A32D2D")) +
+  labs(x = NULL, y = NULL, fill = "Zone") +
+  theme_minimal(base_size = 18) +
+  theme(panel.grid.major.x = element_line(color = "grey85", linewidth = 0.4),
+        panel.grid.major.y = element_line(color = "grey92", linewidth = 0.3),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold", size = 18),
+        legend.position = "bottom")
+
+ggsave(file.path(bundle_dir, "table_green_zone_gantt_D46.png"), width = 11, height = 6, dpi = 300, bg = "white")
