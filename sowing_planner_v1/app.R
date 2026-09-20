@@ -21,6 +21,13 @@ ui <- navbarPage(
   title = "Sowing Schedule Planner",
   fillable = FALSE,
   
+  header = div(
+    style = "background-color:#fff3cd; color:#664d03; border:1px solid #ffecb5;
+             padding:8px 15px; margin-bottom:10px; text-align:center;",
+    strong("⚠ Under development – for testing only."),
+    " Results have not been validated and should not be used for decision-making."
+  ),
+  
   # --- TAB 1: GUIDE -------------------------------------------------------------
   tabPanel(
     "Guide",
