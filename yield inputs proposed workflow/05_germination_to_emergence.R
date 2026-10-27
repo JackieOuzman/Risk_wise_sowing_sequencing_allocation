@@ -1,12 +1,14 @@
 # =============================================================================
 # Sowing optimiser: yield inputs, no-frost stage
 # Script 05: GERMINATION date -> EMERGENCE date (Lock, 2016-2025)
-# Author: Jackie Ouzman        Started: 2026-10-23
+# Author: Jackie Ouzman        Started: 2026-10-27
 #
 # PURPOSE
 #   Reads the germination dates from script 04 and adds the emergence date:
 #     emergence date = germination date + 120 degree-days
 #   The emergence date is what we look up in the yield tables (step 6).
+#   Also works out the SOWING WINDOW for each yield table: which sowing dates
+#   give an emergence date inside Kenton's (20 Mar-10 Jun) and Ed's (8 Apr-17 Jul) range.
 #
 # INPUT
 #   Sowing_to_germination_dates_Lock_2016_2025.csv   (saved by script 04)
@@ -35,7 +37,7 @@ main_rule  <- "Fixed 15 mm"  # rule used for the yield lookup in step 6
 # ---- 1. Read the germination dates (script 04) --------------------------------
 germination <- read_csv(file.path(out_dir, "Sowing_to_germination_dates_Lock_2016_2025.csv"),
                         show_col_types = FALSE)
-nrow(germination)                                 # 4800
+nrow(germination)                                 # 5560 = 4 rules x 10 years x 139 sowing dates
 sum(is.na(germination$germination_date))          # sowings with no germination
 
 # ---- 2. Read the Lock met file (temperature only is needed here) -------------
@@ -69,12 +71,13 @@ results <- germination %>%
          days_sow_to_emerge  = as.numeric(emergence_date - sow_date),
          # same calendar day in the placeholder year 2026, used for the yield lookup (step 6)
          emergence_lookup_date = as.Date(paste0("2026-", format(emergence_date, "%m-%d")))) %>%
-  select(rule, year, sow_date, sow_md, trigger_mm, germination_date, emergence_date,
-         days_sow_to_germ, days_germ_to_emerge, days_sow_to_emerge, emergence_lookup_date)
+  select(-emerg_num)
 
 nrow(results)
 results %>% filter(rule == main_rule, year == 2016,
-                   sow_md %in% c("04-01", "04-15", "05-01", "05-15", "06-01"))
+                   sow_md %in% c("04-01", "04-15", "05-01", "05-15", "06-01")) %>%
+  select(rule, sow_date, trigger_mm, germination_date, emergence_date,
+         days_sow_to_germ, days_germ_to_emerge, days_sow_to_emerge)
 
 # ---- 5. Checks and summaries --------------------------------------------------
 # 5a. Autumn emergence should be roughly 1-2 weeks after germination
@@ -102,13 +105,79 @@ emerge_by_sow <- results %>%
             .groups = "drop")
 
 emerge_by_sow %>%
-  filter(sow_md %in% c("03-20", "04-01", "04-15", "05-01", "05-15", "06-01", "06-15", "07-01", "07-15")) %>%
+  filter(sow_md %in% c("03-01", "03-15", "04-01", "04-15", "05-01", "05-15", "06-01", "06-15", "07-01", "07-15")) %>%
   select(rule, sow_md, median_days_sow_to_emerge) %>%
   pivot_wider(names_from = rule, values_from = median_days_sow_to_emerge)
+
+# 5d. SOWING WINDOW for each yield table: which sowing dates emerge inside its date range?
+# "any year"  = sowing dates that emerge in range in at least one of the 10 years
+# "all years" = sowing dates that emerge in range in every one of the 10 years
+emerge_ranges <- tribble(~model,          ~from_md, ~to_md,
+                         "Kenton",        "03-20",  "06-10",
+                         "Ed",            "04-08",  "07-17",
+                         "Both together", "03-20",  "07-17") %>%
+  mutate(from = as.Date(paste0("2026-", from_md)),
+         to   = as.Date(paste0("2026-", to_md)))
+
+window_by_sow <- results %>%
+  select(rule, year, sow_md, emergence_lookup_date) %>%
+  crossing(emerge_ranges %>% select(model, from, to)) %>%
+  mutate(in_range = !is.na(emergence_lookup_date) &
+           emergence_lookup_date >= from & emergence_lookup_date <= to) %>%
+  group_by(rule, model, sow_md) %>%
+  summarise(n_years = n(), years_in_range = sum(in_range), .groups = "drop")
+
+md_label <- function(x) {                                   # "04-15" -> "15 Apr", NA stays NA
+  out <- rep(NA_character_, length(x))
+  ok  <- !is.na(x)
+  out[ok] <- format(as.Date(paste0("2026-", x[ok])), "%d %b")
+  out
+}
+window_label <- function(from, to)
+  if_else(is.na(from) | is.na(to), "none (no sowing date)", paste(md_label(from), "to", md_label(to)))
+
+sowing_window <- window_by_sow %>%
+  group_by(rule, model) %>%
+  summarise(sow_from_any_year  = first(sow_md[years_in_range > 0]),
+            sow_to_any_year    = last(sow_md[years_in_range > 0]),
+            sow_from_all_years = first(sow_md[years_in_range == n_years]),
+            sow_to_all_years   = last(sow_md[years_in_range == n_years]),
+            .groups = "drop") %>%
+  left_join(emerge_ranges %>% select(model, from_md, to_md), by = "model") %>%
+  mutate(emergence_range = paste(md_label(from_md), "to", md_label(to_md))) %>%
+  transmute(rule, model, emergence_range,
+            sowing_any_year  = window_label(sow_from_any_year, sow_to_any_year),
+            sowing_all_years = window_label(sow_from_all_years, sow_to_all_years),
+            sow_from_any_year, sow_to_any_year) %>%
+  arrange(match(rule, rule_names), match(model, emerge_ranges$model))
+
+sowing_window %>% filter(rule == main_rule) %>% select(-rule, -sow_from_any_year, -sow_to_any_year)
+sowing_window %>% select(-sow_from_any_year, -sow_to_any_year) %>% print(n = Inf)    # all four rules
+
+# 5e. FOR TRIMMING THE WINDOW: in how many of the 10 years does each sowing date emerge inside
+# each yield table's emergence range? (fortnightly, main rule). Trim to the dates where
+# at least trim_min_years of the 10 years land in range (suggested: 5).
+trim_min_years <- 5
+window_by_sow %>%
+  filter(rule == main_rule,
+         sow_md %in% c("02-01", "02-15", "03-01", "03-15", "04-01", "04-15", "05-01", "05-15",
+                       "06-01", "06-15", "07-01", "07-15", "08-01", "08-15", "08-31")) %>%
+  select(model, sow_md, years_in_range) %>%
+  pivot_wider(names_from = model, values_from = years_in_range)
+
+# the sowing dates that meet the threshold, by model
+window_by_sow %>%
+  filter(rule == main_rule, years_in_range >= trim_min_years) %>%
+  group_by(model) %>%
+  summarise(first_sowing_date = md_label(first(sow_md)),
+            last_sowing_date  = md_label(last(sow_md)),
+            n_dates           = n())
 
 # ---- 6. Save -----------------------------------------------------------------
 write_csv(results,       file.path(out_dir, "Sowing_to_emergence_dates_Lock_2016_2025.csv"))
 write_csv(emerge_by_sow, file.path(out_dir, "Sowing_to_emergence_summary_by_sowing_date.csv"))
+write_csv(sowing_window %>% select(-sow_from_any_year, -sow_to_any_year),
+          file.path(out_dir, "Sowing_window_for_each_yield_table.csv"))
 
 # ---- 7. Plot: if I sow on this date, when does the crop emerge? --------------
 plot_dates <- results %>%
@@ -140,3 +209,13 @@ p_emerge
 
 ggsave(file.path(out_dir, "Sowing_to_emergence_dates.png"), p_emerge,
        width = 26, height = 10, units = "cm", dpi = 300)
+
+
+
+results %>%
+  filter(rule == main_rule, !is.na(emergence_date)) %>%
+  group_by(year) %>%
+  filter(emergence_date == min(emergence_date)) %>%
+  summarise(earliest_emergence = first(emergence_date),
+            germination_date   = first(germination_date),
+            latest_sowing_that_gives_it = max(sow_date), .groups = "drop")

@@ -28,11 +28,11 @@
 #   A3 Germination can happen on the sowing day itself if that day alone meets the trigger.
 #   A4 Soil table is a step function: a sowing date uses the latest row on or before it
 #      (sowing before 1 April uses the 1 April row).
-#   A6 If the trigger is not met within 120 days of sowing, no germination (NA).
-#      120 is a placeholder, not from the plan.
+#   A6 seed waits in the ground for as long as it takes; NA only if no germination event occurs before the end of the weather record. 
+#      A real seed-survival limit is still to confirm with Kenton.
 #   A7 Years 2016-2025 (2026 excluded) [to confirm].
-#   A8 Sowing dates every day from 1 Mar to 17 Jul, wide enough to cover every sowing date
-#      that can emerge inside Kenton's (20 Mar-10 Jun) or Ed's (8 Apr-17 Jul) range [to confirm].
+#   A8 Sowing dates every day from 1 Mar to 1 Jul: a deliberately broad starting window, to be
+#      trimmed from the results of script 05 (section 5e) [to confirm].
 # =============================================================================
 
 library(tidyverse)
@@ -44,17 +44,16 @@ out_dir  <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs prop
 years <- 2016:2025                                                  # A7
 
 # A8: candidate SOWING dates, every day (2026 is only a placeholder year).
-# The yield tables are by EMERGENCE date (Kenton 20 Mar-10 Jun, Ed 8 Apr-17 Jul), and
-# emergence is always after sowing, so:
-#   start = early March (a crop sown then can emerge on 20 Mar; script 05 finds the real start)
-#   end   = 17 Jul (nothing sown later can emerge inside either table)
+# Deliberately BROAD to start with. The window is a guess: a crop sown early just waits for the
+# same break, so early dates add identical rows. Script 05 (section 5e) shows in how many years each
+# sowing date emerges inside the yield tables, and we trim the window from that.
 sow_window_start <- as.Date("2026-03-01")
-sow_window_end   <- as.Date("2026-07-17")
+sow_window_end   <- as.Date("2026-07-01")
 sow_grid <- seq(sow_window_start, sow_window_end, by = "1 day")
 sow_md   <- format(sow_grid, "%m-%d")
 
 germ_window_days <- 5      # A1
-max_days_to_germ <- 120    # A6: search limit
+max_days_to_germ <- 365   # effectively no limit: seed waits for the break (only the end of the met data stops it). Real seed-survival limit still to confirm with Kenton**
 
 rule_names <- c("Fixed 15 mm", "Heavy soil", "Medium soil", "Light soil")
 
@@ -209,7 +208,7 @@ ill_rule <- "Fixed 15 mm"
 ill_year <- 2016
 ill_sow  <- c("03-20", "04-15", "05-01", "05-15", "06-15", "07-01")   # example sowing dates (month-day)
 
-# x axis: the sowing window (20 Mar-17 Jul) plus a week either side
+# x axis: the sowing window (1 Mar-1 Jul) plus a week either side
 ill_start <- as.Date(paste0(ill_year, "-03-13"))
 ill_end   <- as.Date(paste0(ill_year, "-07-24"))
 
@@ -322,7 +321,7 @@ p_events <- ggplot() +
   facet_wrap(~ year, ncol = ev_ncol) +
   labs(title = paste0("Rain and germination events, ", plot_rule, ", Lock"),
        subtitle = paste0("Faint bars = daily rain (mm). Dark blue line = rain total over the last 5 days. Grey dashed line = trigger.\n",
-                         "Dots = germination events: a day when at least one sowing date (1 Mar-17 Jul) germinates. Bigger dot = more sowing dates germinate then.\n",
+                         "Dots = germination events: a day when at least one sowing date (1 Feb-31 Aug) germinates. Bigger dot = more sowing dates germinate then.\n",
                          "Dates are shown for events that germinate ", ev_label_min, " or more sowing dates."),
        x = NULL, y = "Rain (mm)",
        caption = paste0("One event can germinate many sowing dates: every sowing before it waits for it.\n",
@@ -359,7 +358,7 @@ p_germ <- ggplot(plot_germ, aes(sow_lookup_date, germ_lookup_date)) +
   facet_wrap(~ year, nrow = 2) +
   labs(title = paste0("Sowing date and germination date, ", sum_rule, ", Lock 2016-2025"),
        subtitle = paste0("One panel per year. Sown on (bottom) and germinates on (side). Dotted line = germinates on the day of sowing.\n",
-                         "Flat stretches = sowing dates that all wait for the same rain event. Gaps = no germination within 120 days."),
+                         "Flat stretches = sowing dates that all wait for the same rain event. Gaps = no germination before the end of the weather record."),
        x = "Sown on", y = "Germinates on",
        caption = "Germination = first day on or after sowing when the rain total over the last 5 days reaches the trigger (mm).") +
   theme_minimal(base_size = 10) +
