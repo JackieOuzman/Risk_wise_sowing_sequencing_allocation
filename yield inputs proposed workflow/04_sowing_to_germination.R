@@ -53,7 +53,7 @@ sow_grid <- seq(sow_window_start, sow_window_end, by = "1 day")
 sow_md   <- format(sow_grid, "%m-%d")
 
 germ_window_days <- 5      # A1
-max_days_to_germ <- 365   # effectively no limit: seed waits for the break (only the end of the met data stops it). Real seed-survival limit still to confirm with Kenton**
+max_days_to_germ <- 365   # effectively no limit: seed waits for the break (only the end of the met data stops it). Real seed-survival limit still to confirm with Kenton
 
 rule_names <- c("Fixed 15 mm", "Heavy soil", "Medium soil", "Light soil")
 
@@ -86,7 +86,7 @@ met <- met_raw %>%
   select(date, rain)
 
 # keep only the years we run. NOT trimmed to the sowing window: the germination
-# search runs up to 120 days past a late sowing date
+# search can run up to max_days_to_germ (365) days past a late sowing date
 met <- met %>% filter(date >= as.Date(paste0(min(years), "-01-01")))
 range(met$date)                                   # 2016-01-01 to 2026-10-21 (approx)
 sum(is.na(met$rain))                              # expect 0 missing
@@ -157,7 +157,7 @@ germination <- expand_grid(rule = rule_names, year = years, sow_md = sow_md) %>%
          rain_on_sow_day, rain_5d_to_sow_day, triggers_on_sow_day, trigger_if_pre_sowing_rain_counted,
          germination_date, rain_on_germ_day, rain_5d_at_germ, days_sow_to_germ)
 
-nrow(germination)                                 # 4 rules x 10 years x 139 sowing dates = 5560
+nrow(germination)                                 # 4 rules x 10 years x 123 sowing dates = 4920
 germination %>% filter(rain_5d_at_germ < trigger_mm)     # check: should return no rows
 germination %>% filter(triggers_on_sow_day != (days_sow_to_germ == 0))   # check: should return no rows
 
@@ -257,6 +257,7 @@ p_ill <- ggplot() +
         plot.caption = element_text(hjust = 0, lineheight = 1.1))
 p_ill
 
+
 ggsave(file.path(out_dir, paste0("Germination_trigger_illustration_", ill_year, ".png")), p_ill,
        width = 28, height = 14, units = "cm", dpi = 300)
 
@@ -266,7 +267,8 @@ ggsave(file.path(out_dir, paste0("Germination_trigger_illustration_", ill_year, 
 # events (days on which at least one sowing date in the window germinates). Bigger dot =
 # more sowing dates germinate on that day; only the bigger events are labelled with a date.
 plot_rule      <- "Fixed 15 mm"   # one trigger line only, so keep the fixed rule here
-plot_years     <- 2016:2020       # 5 years at a time (wider panels), then 2021:2025. Use 2016 alone for one large panel
+#plot_years     <- 2016:2020       # 5 years at a time (wider panels), then 2021:2025. Use 2016 alone for one large panel
+plot_years     <- 2021:2025       # 5 years at a time (wider panels), then 2021:2025. Use 2016 alone for one large panel
 ev_start       <- "03-01"         # calendar window shown (month-day)
 ev_end         <- "08-31"
 ev_show_labels <- TRUE            # FALSE hides the event dates
@@ -321,7 +323,7 @@ p_events <- ggplot() +
   facet_wrap(~ year, ncol = ev_ncol) +
   labs(title = paste0("Rain and germination events, ", plot_rule, ", Lock"),
        subtitle = paste0("Faint bars = daily rain (mm). Dark blue line = rain total over the last 5 days. Grey dashed line = trigger.\n",
-                         "Dots = germination events: a day when at least one sowing date (1 Feb-31 Aug) germinates. Bigger dot = more sowing dates germinate then.\n",
+                         "Dots = germination events: a day when at least one sowing date (", format(sow_window_start, "%d %b"), " to ", format(sow_window_end, "%d %b"), ") germinates. Bigger dot = more sowing dates germinate then.\n",
                          "Dates are shown for events that germinate ", ev_label_min, " or more sowing dates."),
        x = NULL, y = "Rain (mm)",
        caption = paste0("One event can germinate many sowing dates: every sowing before it waits for it.\n",
@@ -334,8 +336,11 @@ p_events <- ggplot() +
         plot.caption = element_text(hjust = 0, lineheight = 1.1))
 p_events
 
+
+
 ev_height <- if (ev_one) 11 else 4 + 4.5 * ceiling(length(plot_years) / ev_ncol)
-ggsave(file.path(out_dir, paste0("Germination_events_", str_replace_all(plot_rule, " ", "_"), ".png")), p_events,
+ggsave(file.path(out_dir, paste0("Germination_events_", str_replace_all(plot_rule, " ", "_"),
+                                 "_", min(plot_years), "_", max(plot_years), ".png")), p_events,
        width = 28, height = ev_height, units = "cm", dpi = 300)
 
 # ---- 8. Plot: all years, one rule ---------------------------------------------
