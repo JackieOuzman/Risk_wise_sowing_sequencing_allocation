@@ -20,9 +20,9 @@ library(tidyverse)
 
 # ---- 0. Settings ------------------------------------------------------------
 out_dir            <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
-#plot_rules         <- c("Light soil")        # e.g. c("Fixed 15 mm", "Light soil") to overlay two rules
-plot_rules         <- c("Fixed 15 mm", "Light soil")        # e.g. c("Fixed 15 mm", "Light soil") to overlay two rules
-out_of_range_label <- "exclude"              # label only: must match script 06
+plot_rules         <- c("Fixed 15 mm", "Heavy soil", "Medium soil", "Light soil")   # changed: all four rules (use one rule alone to see the year dots)
+out_of_range_label <- "no yield for emergence after 31 Aug"   # changed: label only, must match script 06 (out_of_range_rule "exclude")
+uplift_text        <- "Shotgun wheat yields +5%"               # changed: must match wheat_uplift in script 02b
 crop_to_plot       <- "Wheat"
 window_start       <- as.Date("2026-03-01")  # must match script 07
 window_days        <- 7
@@ -33,7 +33,7 @@ rule_cols <- c("Fixed 15 mm" = "#9ecae1", "Heavy soil" = "#c6dbef",
 # text for the plot subtitle (must match scripts 04, 05 and 02)
 dd_target         <- 120                    # degree-days from germination to emergence (script 05)
 base_temp         <- 0                      # base temperature, C (script 05)
-yield_table_range <- "20 Mar to 10 Jun"     # emergence dates covered by Kenton's yield table (script 02)
+yield_table_range <- "20 Mar to 10 Jun, extended to 31 Aug with a broken stick"   # changed
 rule_text <- c("Fixed 15 mm"  = "15 mm of rain in 5 days",
                "Heavy soil"   = "heavy-soil trigger (25 down to 15 mm in 5 days, by sowing date)",
                "Medium soil"  = "medium-soil trigger (18 down to 10 mm in 5 days, by sowing date)",
@@ -63,8 +63,8 @@ season_labs <- window_tbl %>% group_by(season_type) %>% summarise(n = max(n_year
 season_labs <- set_names(season_labs$lab, season_labs$season_type)
 
 # windows with no yield in any rule (grey band)
-no_yield <- window_tbl %>% group_by(season_type, window_from) %>%
-  summarise(all_na = all(is.na(yield_mean)), .groups = "drop") %>% filter(all_na)
+no_yield <- window_tbl %>% group_by(season_type, window_from) %>%          # changed: shade the weeks where (almost) every year is on the extended curve
+  summarise(all_na = all(share_extended >= 0.95, na.rm = TRUE), .groups = "drop") %>% filter(all_na)
 no_yield_lab <- no_yield %>% group_by(season_type) %>%
   summarise(x = min(window_from) + (max(window_from) + window_days - min(window_from)) / 2, .groups = "drop")
 
@@ -79,7 +79,7 @@ n_labels  <- if (single_rule) geom_text(data = window_tbl, aes(window_mid, y = 0
 p_window <- ggplot() +
   geom_rect(data = no_yield, aes(xmin = window_from, xmax = window_from + window_days, ymin = -Inf, ymax = Inf),
             fill = "grey92") +
-  geom_text(data = no_yield_lab, aes(x, y = Inf, label = "No yield in Kenton's table\n(emerges after 10 Jun)"),
+  geom_text(data = no_yield_lab, aes(x, y = Inf, label = "Extended curve only\n(emerges after 10 Jun)"),     # changed
             vjust = 1.3, size = 2.8, colour = "grey35") +
   year_dots +
   geom_line(data = window_tbl, aes(window_mid, yield_mean, colour = rule, group = rule, linetype = rule), linewidth = 1, na.rm = TRUE) +
@@ -94,13 +94,13 @@ p_window <- ggplot() +
   
   labs(title = paste0("Expected ", tolower(crop_to_plot), " yield by sowing date (Kenton model, Shotgun)"),
        subtitle = paste0("Sowing date  >  germination (rain)  >  emergence (heat)  >  yield\n",
-                         "Germination: first day with ", paste(rule_text[plot_rules], collapse = "; "), ", counting rain from the sowing day\n",
+                         "Germination: first day with ", if (single_rule) rule_text[plot_rules] else "the rain trigger of each rule (15 mm fixed, or Kenton's soil triggers that fall through autumn)", ", counting rain from the sowing day\n",   # changed
                          "Emergence: ", dd_target, " degree-days after germination (daily mean temperature, base ", base_temp, " C)\n",
-                         "Yield: read from Kenton's table at the emergence date (", yield_table_range, "); no yield outside it (", out_of_range_label, ")"),
+                         "Yield: read from Kenton's table at the emergence date (", yield_table_range, ")\n", uplift_text, "; ", out_of_range_label),   # changed
        x = "Sowing date (first day of each 7-day week)", y = "Yield (t/ha)",
        caption = paste0("Line = average across the years of that season type. Dots = individual years (average of the sowing days in that week).\n",
                         "Small numbers = years behind each average. Each year uses the yield table for its own season type (water supply).\n",
-                        "Lock, 2016-2025 (2022 is D10, left out).")) +
+                        "Lock, 1997-2025 (D10 years, 2022 among them, are left out). Grey band = every year in that week is on the extended curve.")) +     # changed
   
   theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(),
@@ -115,9 +115,4 @@ ggsave(file.path(out_dir, paste0("Yield_by_sowing_window_plot_", paste(str_repla
        p_window, width = 22, height = 18, units = "cm", dpi = 300)
 
 
-bind_rows(
-  read_csv(file.path(out_dir, "Yield_by_year_and_window_Fixed_15_mm.csv"), show_col_types = FALSE) %>% mutate(rule = "Fixed 15 mm"),
-  read_csv(file.path(out_dir, "Yield_by_year_and_window_Light_soil.csv"),  show_col_types = FALSE) %>% mutate(rule = "Light soil")) %>%
-  filter(yield_table == "D4-6", window_no == 3) %>%
-  select(rule, year, window_label, median_emergence, yield_year_mean) %>%
-  arrange(year, rule)
+

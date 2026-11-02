@@ -6,10 +6,11 @@
 # PURPOSE
 #   Takes the yield tables from script 02 (yield by EMERGENCE date for each crop or cultivar and
 #   season type) and
-#     1. extends Kenton's curves to more emergence dates, with a straight line fitted to the
-#        first / last few table dates (never below 0). Ed's curves are left as they are.
-#     2. lifts the Kenton wheat yields (Shotgun and Mowhawk): +10% for D1-3 and D4-6, +20% for D7-9
-#        (meeting with Therese, 30 Oct 2026). Barley is left as it is.
+#     #     1. extends Kenton's curves to more emergence dates (1 Mar to 31 Aug) with a broken stick: rise and fall in      # changed
+#        two straight lines fitted to the table (extend_method; "line" = straight line from the last 3 dates).       # changed
+#        Never below 0, and shifted to join Kenton's table. Ed's curves are left as they are.                         # changed
+#        Therese's 30 Oct 2026 figures were 10% for D1-6 and 20% for D7-9, reduced so wheat stays at or      # changed
+#        below barley). Barley is left as it is.                                                              # changed
 #   Script 06 then reads the new file and looks up yield at each emergence date, with no
 #   extrapolation or uplift of its own.
 #
@@ -33,7 +34,8 @@ extend_pattern   <- "^Kenton"                 # sources whose curves are extende
 extend_from      <- as.Date("2026-03-01")     # emergence dates are on a placeholder year, 2026
 extend_to        <- as.Date("2026-08-31")
 extend_step_days <- 5                         # spacing of the new dates
-extrap_n_points  <- 3                         # the line is fitted to the first / last 3 table dates
+extrap_n_points  <- 3                         # the straight line is fitted to the first / last 3 table dates
+extend_method    <- "broken_stick"            # changed: "broken_stick" (chosen) or "line" (straight line, for comparison)
 plot_cultivars   <- c("Bigfoot", "Shotgun", "Mowhawk")   # changed: the cultivars shown in the plot and slope table
 
 uplift_pattern   <- "^Kenton"
@@ -65,13 +67,29 @@ extend_one <- function(curve, key) {
   fit_first <- lm(yield_t_ha ~ x, data = tibble(x = head(x, extrap_n_points), yield_t_ha = head(curve$yield_t_ha, extrap_n_points)))
   fit_last  <- lm(yield_t_ha ~ x, data = tibble(x = tail(x, extrap_n_points), yield_t_ha = tail(curve$yield_t_ha, extrap_n_points)))
   
+  # changed from here: broken stick = rise then fall in two straight lines, joined at the best breakpoint
+  curve_xy  <- tibble(x = x, yield_t_ha = curve$yield_t_ha)
+  rss_at    <- function(bp) sum(resid(lm(yield_t_ha ~ x + pmax(0, x - bp), data = curve_xy))^2)
+  bps       <- seq(min(x) + 7, max(x) - 7, by = 1)                  # candidate breakpoints, one day apart
+  bp        <- bps[which.min(map_dbl(bps, rss_at))]                 # the breakpoint with the smallest error
+  fit_stick <- lm(yield_t_ha ~ x + pmax(0, x - bp), data = curve_xy)
+  
+  predict_ext <- function(xx) {                                     # the chosen method, at dates xx
+    if (extend_method == "line") {
+      if_else(xx <= min(x), as.numeric(predict(fit_first, newdata = tibble(x = xx))),
+              as.numeric(predict(fit_last,  newdata = tibble(x = xx))))
+    } else {
+      as.numeric(predict(fit_stick, newdata = tibble(x = xx)))
+    }
+  }
+  shift_first <- curve$yield_t_ha[1]       - predict_ext(min(x))    # so the extension starts at Kenton's first table value
+  shift_last  <- tail(curve$yield_t_ha, 1) - predict_ext(max(x))    # and at his last
+  
   tibble(emergence_date = c(before, after)) %>%
     mutate(x_new      = as.numeric(emergence_date),
-           y_first    = as.numeric(predict(fit_first, newdata = tibble(x = x_new))),
-           y_last     = as.numeric(predict(fit_last,  newdata = tibble(x = x_new))),
-           yield_t_ha = pmax(0, if_else(emergence_date < first_d, y_first, y_last)),
-           date_note  = paste0("extended: straight line fitted to the ",
-                               if_else(emergence_date < first_d, "first ", "last "), extrap_n_points, " table dates"),
+           y_ext      = predict_ext(x_new),
+           yield_t_ha = pmax(0, if_else(emergence_date < first_d, y_ext + shift_first, y_ext + shift_last)),
+           date_note  = paste0("extended: ", extend_method, " method, shifted to join Kenton's table"),
            point_type = "extended") %>%
     select(emergence_date, yield_t_ha, date_note, point_type)
 }
@@ -160,8 +178,9 @@ p_ext <- combined %>%
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   facet_wrap(~ crop_or_cultivar, nrow = 1) +
   labs(title = "Kenton yield tables by emergence date, extended",
-       subtitle = paste0("Filled dots = Kenton's table. Open dots = extended with a straight line (last ", extrap_n_points,
-                         " table dates), never below 0. Shotgun and Mowhawk include the wheat uplift."),
+       subtitle = paste0("Filled dots = Kenton's table. Open dots = extended with a ",                                       # changed
+                         if (extend_method == "line") "straight line (last 3 table dates)" else "broken stick (rise and fall in two straight lines)",
+                         ", never below 0. Shotgun and Mowhawk include the wheat uplift."),
        x = "Emergence date", y = "Yield (t/ha)") +
   theme_minimal(base_size = 10) +
   theme(panel.grid.minor = element_blank(), legend.position = "top",
@@ -170,3 +189,4 @@ p_ext
 
 ggsave(file.path(out_dir, "Yield_by_emergence_date_extended.png"), p_ext,
        width = 28, height = 10, units = "cm", dpi = 300)
+

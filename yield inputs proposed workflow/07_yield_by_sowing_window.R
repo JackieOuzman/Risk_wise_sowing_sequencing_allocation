@@ -24,8 +24,11 @@ library(tidyverse)
 
 # ---- 0. Settings ------------------------------------------------------------
 out_dir     <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
-use_rule    <- "Fixed 15 mm"          # must match the rule run in script 06
-#use_rule    <- "Light soil"           # must match the rule run in script 06
+#use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
+#use_rule            <- "Heavy soil"   
+#use_rule            <- "Medium soil" 
+use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
+
 window_start        <- as.Date("2026-03-01")   # week 1 starts here (placeholder year 2026, as in the yield lookup)
 window_days         <- 7
 keep_partial_window <- FALSE          # TRUE keeps the short final window
@@ -59,9 +62,10 @@ year_window <- lookup %>%
   group_by(crop, yield_table, year, window_no, window_label) %>%
   summarise(n_days               = n(),
             n_days_with_yield    = sum(!is.na(yield_used)),
-            share_days_in_table  = round(mean(yield_status == "in table"), 2),   # 1 = every day inside Kenton's dates
-            yield_year_mean      = safe_mean(yield_used),                        # after the out-of-range rule
-            yield_year_mean_in_table = safe_mean(yield_t_ha),                    # only days inside the table
+            share_days_in_table  = round(mean(yield_status == "in table"), 2),   # 1 = every day inside Kenton's own dates (20 Mar to 10 Jun)
+            share_days_extended  = round(mean(yield_status == "extended"), 2),   # changed: share of days on the extended curve (script 02b)
+            yield_year_mean      = safe_mean(yield_used),                        # table + extended curve
+            yield_year_mean_in_table = safe_mean(if_else(yield_status == "in table", yield_t_ha, NA_real_)),   # changed: only days inside Kenton's own dates
             median_emergence     = median(emergence_date, na.rm = TRUE),
             .groups = "drop")
 
@@ -76,7 +80,8 @@ window_table <- year_window %>%
   group_by(crop, yield_table, window_no, window_label) %>%
   summarise(n_years               = n_distinct(year),                      # years of this season type
             n_years_with_yield    = sum(!is.na(yield_year_mean)),          # years that contribute to the mean
-            n_years_in_table      = sum(!is.na(yield_year_mean_in_table)), # years with any day inside the table
+            n_years_in_table      = sum(!is.na(yield_year_mean_in_table)), # years with any day inside Kenton's own dates   # changed
+            share_extended        = round(mean(share_days_extended), 2),   # changed: average share of the week's days on the extended curve (0 to 1)
             yield_mean            = safe_mean(yield_year_mean),
             yield_mean_in_table   = safe_mean(yield_year_mean_in_table),
             yield_min_year        = if (all(is.na(yield_year_mean))) NA_real_ else min(yield_year_mean, na.rm = TRUE),
@@ -95,7 +100,7 @@ window_table %>% filter(season_type == "D1-3") %>% print(n = Inf, width = Inf)
 lookup %>% filter(year == 2017, window_no == 1) %>% summarise(n = n(), mean_daily_yield = mean(yield_used, na.rm = TRUE))
 year_window %>% filter(year == 2017, window_no == 1) %>% select(year, window_label, n_days, yield_year_mean)   # should be the same number
 
-# 4c. season types with no years (D7-9 expected)
+# 4c. windows per season type (D1-3, D4-6 and D7-9 should all be there now, 17 windows each)   # changed
 window_table %>% count(season_type)
 
 # ---- 5. Save -----------------------------------------------------------------
@@ -104,38 +109,3 @@ write_csv(year_window,  file.path(out_dir, paste0("Yield_by_year_and_window_", r
 
 
 
-lookup_table <- read_csv(file.path(out_dir, "Yield_lookup_table_Light_soil.csv"))
-
-lookup_table %>%
-  group_by(year) %>%
-  summarise(shortest_wait_days = min(days_sow_to_germ, na.rm = TRUE),
-            longest_wait_days  = max(days_sow_to_germ, na.rm = TRUE),
-            sowings_never_germinating = sum(is.na(germination_date)),
-            .groups = "drop") %>%
-  print(n = Inf)
-read_csv(file.path(out_dir, "Yield_lookup_table_Fixed_15_mm.csv")) %>%
-  group_by(year) %>%
-  summarise(shortest_wait_days = min(days_sow_to_germ, na.rm = TRUE),
-            longest_wait_days  = max(days_sow_to_germ, na.rm = TRUE),
-            sowings_never_germinating = sum(is.na(germination_date)),
-            .groups = "drop") %>%
-  print(n = Inf)
-
-read_csv(file.path(out_dir, "Yield_by_sowing_window_Light_soil.csv"), show_col_types = FALSE) %>%
-  filter(season_type == "D1-3") %>%
-  select(window_label, n_years, n_years_in_table, yield_mean, yield_mean_in_table) %>%
-  print(n = Inf)
-
-read_csv(file.path(out_dir, "Yield_by_sowing_window_Light_soil.csv"), show_col_types = FALSE) %>%
-  filter(season_type == "D4-6") %>%
-  select(window_label, n_years, n_years_in_table, yield_mean, yield_mean_in_table) %>%
-  print(n = Inf)
-
-read_csv(file.path(out_dir, "Yield_lookup_table_Light_soil.csv"), show_col_types = FALSE) %>%
-  filter(year_season_type == "D4-6", format(sow_date, "%m-%d") <= "03-07") %>%
-  count(year, yield_status, yield_used)
-
-
-read_csv(file.path(out_dir, "Yield_by_sowing_window_Light_soil.csv"), show_col_types = FALSE) %>%
-  select(season_type, window_label, n_years, n_years_with_yield, n_years_in_table, yield_mean) %>%
-  print(n = Inf)

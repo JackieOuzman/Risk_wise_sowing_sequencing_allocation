@@ -10,39 +10,49 @@
 #   YEAR'S OWN season type (D1-3, D4-6, D7-9, from script 01), at the emergence date.
 #   Then averages over the years to give the expected yield for each sowing date and
 #   season type (step 7).
+#   One lookup table is built for each of the four germination rules from script 04.   # changed
 #
 # INPUTS (all in out_dir)
-#   Sowing_to_emergence_dates_Lock_2016_2025.csv   (script 05)
+#   Sowing_to_emergence_dates_Lock_1997_2025.csv   (script 05)                         # changed
 #   Yield_by_emergence_date_Kenton_and_Ed.csv      (script 02)
 #   Lock_18046_water_supply_season_types.csv       (script 01)
 #
 # RULE SWITCHES (these are choices still to be agreed with Kenton / Therese)
 #   use_rule             which germination rule to run (from script 04), e.g. "Fixed 15 mm"
+#                        (the four rules are each run in turn to give four lookup tables)   # changed
 #   out_of_range_rule    emergence before the first / after the last date of the yield table:
-#                        "hold_last" = use the yield at the nearest end of the table
-#                        "zero"      = yield 0
-#                        "exclude"   = no yield (left out of the average)
+#                        "hold_last"   = use the yield at the nearest end of the table
+#                        "zero"        = yield 0
+#                        "exclude"     = no yield (left out of the average)
+#                        "extrapolate" = extend the yield table beyond its end dates      # changed (to be written)
 #   no_emergence_rule    sowings that never germinate or emerge: "exclude" or "zero"
 #   years_for_each_type  "own" = each year uses its own season type's table (agreed for now)
 #                        "all" = every year is run through every table
+#   wheat_uplift         Kenton wheat yields (Shotgun and Mowhawk) are multiplied by       # changed
+#                        1.10 for D1-3 and D4-6 and 1.20 for D7-9 (meeting with Therese,
+#                        30 Oct 2026). Barley is left as it is.
 #
 # ASSUMPTIONS [to confirm]
 #   Wheat (regular) = Kenton's Shotgun. Between table dates the yield is interpolated in a straight line.
-#   Years with no matching table (e.g. D10 years such as 2022) are left out under "own".
+#   Years with no matching table (e.g. D10 years, 2022 among them) are left out under "own".
+#   Years are 1997-2025, the last 29 complete seasons.                                      # changed
 # =============================================================================
+
 
 library(tidyverse)
 
 # ---- 0. Settings ------------------------------------------------------------
 out_dir     <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
-emerg_file  <- "Sowing_to_emergence_dates_Lock_2016_2025.csv"
-yield_file  <- "Yield_by_emergence_date_Kenton_and_Ed.csv"
+emerg_file  <- "Sowing_to_emergence_dates_Lock_1997_2025.csv"   # changed
+yield_file  <- "Yield_by_emergence_date_extended.csv"     # changed: from script 02b (extended curves, wheat uplift applied)
 season_file <- "Lock_18046_water_supply_season_types.csv"
 
-use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
-#use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
+#use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
+#use_rule            <- "Heavy soil"   
+#use_rule            <- "Medium soil" 
+use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
 #out_of_range_rule   <- "hold_last"       # "hold_last", "zero" or "exclude"
-out_of_range_rule   <- "exclude"         # "hold_last", "zero" or "exclude"
+out_of_range_rule   <- "exclude"         # changed: the tables now run 1 Mar to 31 Aug (script 02b); emergence outside that has no yield
 no_emergence_rule   <- "exclude"         # "exclude" or "zero"
 years_for_each_type <- "own"             # "own" or "all"
 
@@ -51,6 +61,9 @@ dd_target <- 120
 base_temp <- 0
 
 season_types <- c("D1-3", "D4-6", "D7-9")
+
+
+# changed: the wheat uplift and the extension of the yield curves are now done in script 02b
 
 # one row per crop. To add a crop, add a row (Ed's crops use source_pattern "^Ed").
 crop_settings <- tribble(
@@ -69,8 +82,8 @@ stopifnot(nrow(emerg) > 0)
 nrow(emerg)                                       # 1230 for the 1 Mar-1 Jul window (10 years x 123 days)
 sum(is.na(emerg$emergence_date))                  # sowings with no emergence under this rule
 
-yields <- read_csv(file.path(out_dir, yield_file), show_col_types = FALSE)
-yields %>% count(source, crop_or_cultivar)        # check the crop is in the yield file
+yields <- read_csv(file.path(out_dir, yield_file), show_col_types = FALSE)             # changed: the uplift is already in the file
+yields %>% count(source, crop_or_cultivar, point_type)        # check the crop is in the yield file, and how many dates are extended
 
 season_raw <- read_csv(file.path(out_dir, season_file), show_col_types = FALSE)
 stopifnot(all(c("season_year", "season_type") %in% names(season_raw)))      # if this fails, check the column names
@@ -81,6 +94,8 @@ year_types %>% filter(year %in% unique(emerg$year)) %>% arrange(year)
 year_types %>% filter(year %in% unique(emerg$year)) %>% count(year_season_type)   # D7-9 should be missing
 
 # ---- 2. Yield lookup for one crop and one season type's table -----------------
+# changed: the extension of the curves is now done in script 02b
+
 lookup_one <- function(emerg_tbl, cs, st_label) {
   curve <- yields %>%
     filter(str_detect(source, cs$source_pattern), crop_or_cultivar == cs$cultivar, season_type == st_label) %>%
@@ -91,17 +106,23 @@ lookup_one <- function(emerg_tbl, cs, st_label) {
   y_interp <- approx(curve$x, curve$yield_t_ha, xout = x, rule = 1)$y   # straight line between table dates, NA outside
   first_y  <- curve$yield_t_ha[1]
   last_y   <- curve$yield_t_ha[nrow(curve)]
+  tbl_from <- min(curve$x[curve$point_type == "table"])    # changed: Kenton's own table dates (20 Mar to 10 Jun)
+  tbl_to   <- max(curve$x[curve$point_type == "table"])
   status <- case_when(is.na(x)         ~ "no emergence",
                       x < min(curve$x) ~ "before table",
                       x > max(curve$x) ~ "after table",
+                      x < tbl_from | x > tbl_to ~ "extended",        # changed: on the extended part of the curve (script 02b)
                       TRUE             ~ "in table")
+  
   yield_used <- case_when(
-    status == "in table"     ~ y_interp,
+    status %in% c("in table", "extended") ~ y_interp,       # changed: extended rows also get a yield
     status == "no emergence" ~ if (no_emergence_rule == "zero") 0 else NA_real_,
     status == "before table" ~ switch(out_of_range_rule, hold_last = first_y, zero = 0, exclude = NA_real_),
     status == "after table"  ~ switch(out_of_range_rule, hold_last = last_y,  zero = 0, exclude = NA_real_))
+  
   emerg_tbl %>%
     mutate(yield_table        = st_label,
+           yield_uplift       = curve$yield_uplift[1],     # changed: 1.10 / 1.20 for Kenton wheat, 1 otherwise
            yield_emerg_window = paste(format(as.Date(min(curve$x)), "%d %b"), "to", format(as.Date(max(curve$x)), "%d %b")),
            yield_t_ha         = y_interp,        # strictly from the table, NA outside its dates
            yield_status       = status,
@@ -126,7 +147,7 @@ lookup_table <- (if (years_for_each_type == "own") lookup_all %>% filter(yield_t
   
   select(crop, year, year_season_type, decile_basis, sowing_window, sow_date,
          germination_rule, germination_date, days_sow_to_germ, emergence_rule, emergence_date,
-         yield_source, yield_emerg_window, yield_table, yield_status, yield_t_ha, yield_used)
+         yield_source, yield_emerg_window, yield_table, yield_uplift, yield_status, yield_t_ha, yield_used)   # changed
 
 # years left out because they have no matching table (e.g. D10)
 setdiff(unique(emerg$year), unique(lookup_table$year))
@@ -193,7 +214,7 @@ p_yield <- ggplot(plot_y_long, aes(sow_lookup_date, yield, colour = yield_table,
   scale_linetype_manual(values = c("After the out-of-range rule" = "solid", "Only years inside the yield table" = "dashed"), name = NULL) +
   scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") +
   labs(title = paste0("Expected yield by sowing date: ", unique(plot_y$crop)[1], ", ", use_rule),
-       subtitle = paste0("Each year uses its own season type's yield table, averaged over the years (2016-2025). Out-of-range rule: ",
+       subtitle = paste0("Each year uses its own season type's yield table, averaged over the years (", min(emerg$year), "-", max(emerg$year), "). Out-of-range rule: ",   # changed
                          out_of_range_rule, ". No-emergence rule: ", no_emergence_rule, "."),
        x = "Sowing date", y = "Yield (t/ha)",
        caption = "Gaps = no year of that season type has a yield for that sowing date.") +
