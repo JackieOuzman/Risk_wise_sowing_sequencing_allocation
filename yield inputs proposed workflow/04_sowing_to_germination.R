@@ -1,6 +1,6 @@
 # =============================================================================
 # Sowing optimiser: yield inputs, no-frost stage
-# Script 04: Sowing date -> GERMINATION date (Lock, 2016-2025)
+# Script 04: Sowing date -> GERMINATION date (Lock, 1997-2025)
 # Author: Jackie Ouzman        Started: 2026-10-23
 #
 # PURPOSE
@@ -26,11 +26,12 @@
 #      and the sowing day's rain counts. (Columns rain_5d_to_sow_day and
 #      trigger_if_pre_sowing_rain_counted show what would change if it did count.)
 #   A3 Germination can happen on the sowing day itself if that day alone meets the trigger.
-#   A4 Soil table is a step function: a sowing date uses the latest row on or before it
-#      (sowing before 1 April uses the 1 April row).
+#   A4 Soil table is a step function of the date the 5-day rain total ENDS (the date the rain falls),   # changed
+#      not the sowing date: that date uses the latest row on or before it                                # changed
+#      (rain before 1 April uses the 1 April row).       
 #   A6 seed waits in the ground for as long as it takes; NA only if no germination event occurs before the end of the weather record. 
 #      A real seed-survival limit is still to confirm with Kenton.
-#   A7 Years 2016-2025 (2026 excluded) [to confirm].
+#   A7 Years 1997-2025, the last 29 complete seasons (2026 excluded). D10 years stay in this script and are dropped when averaging in script 07.
 #   A8 Sowing dates every day from 1 Mar to 1 Jul: a deliberately broad starting window, to be
 #      trimmed from the results of script 05 (section 5e) [to confirm].
 # =============================================================================
@@ -41,7 +42,8 @@ library(tidyverse)
 met_path <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow/LOCK_18046.sim"
 out_dir  <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
 
-years <- 2016:2025                                                  # A7
+years <- 1997:2025                                                  # A7  (changed from 2016:2025)
+yr_tag <- paste0(min(years), "_", max(years))                       # changed: used in the saved file name                                                 # A7
 
 # A8: candidate SOWING dates, every day (2026 is only a placeholder year).
 # Deliberately BROAD to start with. The window is a guess: a crop sown early just waits for the
@@ -66,11 +68,11 @@ soil_triggers <- tribble(
   "05-15",  15,            10,             6
 )
 
-# trigger (mm) for a sowing date and rule                                   # A4
-get_trigger <- function(sow_date, rule) {
-  if (rule == "Fixed 15 mm") return(15)
-  md  <- format(sow_date, "%m-%d")
-  row <- max(1, sum(soil_triggers$from_md <= md))
+# trigger (mm) for a date (or a vector of dates) and rule                  # A4  (changed: now works on a vector of dates)
+get_trigger <- function(date, rule) {
+  if (rule == "Fixed 15 mm") return(rep(15, length(date)))
+  md  <- format(date, "%m-%d")
+  row <- pmax(1, rowSums(outer(md, soil_triggers$from_md, ">=")))
   soil_triggers[[rule]][row]
 }
 
@@ -88,16 +90,17 @@ met <- met_raw %>%
 # keep only the years we run. NOT trimmed to the sowing window: the germination
 # search can run up to max_days_to_germ (365) days past a late sowing date
 met <- met %>% filter(date >= as.Date(paste0(min(years), "-01-01")))
-range(met$date)                                   # 2016-01-01 to 2026-10-21 (approx)
+range(met$date)                                   # 1997-01-01 to 2026-10-21 (approx)   # changed
 sum(is.na(met$rain))                              # expect 0 missing
 
 # ---- 2. Germination functions -------------------------------------------------
-find_germination <- function(sow_date, trigger_mm) {
+find_germination <- function(sow_date, rule) {                                  # changed: takes the rule, not one trigger
   d <- met %>% filter(date >= sow_date, date <= sow_date + max_days_to_germ)
   cs  <- c(0, cumsum(d$rain))                     # cumulative rain, starting at the sowing day (A2)
   idx <- seq_len(nrow(d))
   win <- cs[idx + 1] - cs[pmax(idx - germ_window_days, 0) + 1]   # rain total over the last 5 days (A1)
-  hit <- which(win >= trigger_mm)[1]              # first day the trigger is met (A3)
+  trig <- get_trigger(d$date, rule)               # changed: trigger for the date each 5-day total ends on (A4)
+  hit <- which(win >= trig)[1]                    # changed: first day the trigger is met (A3)
   as.numeric(d$date[hit])                         # NA if never met (A6)
 }
 
@@ -141,9 +144,12 @@ met_roll <- met %>%
 # ---- 3. Run every rule x year x sowing date ----------------------------------
 germination <- expand_grid(rule = rule_names, year = years, sow_md = sow_md) %>%
   mutate(sow_date   = as.Date(paste0(year, "-", sow_md)),
-         trigger_mm = map2_dbl(sow_date, rule, get_trigger),
-         germ_num   = map2_dbl(sow_date, trigger_mm, find_germination),
+         trigger_mm = map2_dbl(sow_date, rule, get_trigger),                          # trigger on the sowing date (used for the sowing-day checks)
+         germ_num   = map2_dbl(sow_date, rule, find_germination),                     # changed: pass the rule
          germination_date = as.Date(germ_num, origin = "1970-01-01"),
+         trigger_at_germ_mm = if_else(is.na(germination_date), NA_real_,              # changed: new column, the trigger that was met
+                                      map2_dbl(germination_date, rule, get_trigger)),
+         
          days_sow_to_germ = as.numeric(germination_date - sow_date),
          rain_5d_at_germ  = map2_dbl(sow_date, germination_date, rain_5d_total)) %>%   # rain total that met the trigger
   left_join(met %>% select(germination_date = date, rain_on_germ_day = rain),         # rain on the germination day
@@ -153,12 +159,12 @@ germination <- expand_grid(rule = rule_names, year = years, sow_md = sow_md) %>%
             by = "sow_date") %>%
   mutate(triggers_on_sow_day = rain_on_sow_day >= trigger_mm,                         # A2: only the sowing day's rain counts
          trigger_if_pre_sowing_rain_counted = rain_5d_to_sow_day >= trigger_mm) %>%   # for information only
-  select(rule, year, sow_date, sow_md, trigger_mm,
+  select(rule, year, sow_date, sow_md, trigger_mm, trigger_at_germ_mm,     # changed: added trigger_at_germ_mm
          rain_on_sow_day, rain_5d_to_sow_day, triggers_on_sow_day, trigger_if_pre_sowing_rain_counted,
          germination_date, rain_on_germ_day, rain_5d_at_germ, days_sow_to_germ)
 
-nrow(germination)                                 # 4 rules x 10 years x 123 sowing dates = 4920
-germination %>% filter(rain_5d_at_germ < trigger_mm)     # check: should return no rows
+nrow(germination)                                 # 4 rules x 29 years x 123 sowing dates = 14268   # changed
+germination %>% filter(rain_5d_at_germ < trigger_at_germ_mm)     # check: should return no rows   # changed
 germination %>% filter(triggers_on_sow_day != (days_sow_to_germ == 0))   # check: should return no rows
 
 # how often would counting pre-sowing rain change the answer (A2)?
@@ -198,7 +204,7 @@ germ_by_sow %>%
   pivot_wider(names_from = rule, values_from = median_days_to_germ)
 
 # ---- 5. Save (script 05 reads the first file) ---------------------------------
-write_csv(germination, file.path(out_dir, "Sowing_to_germination_dates_Lock_2016_2025.csv"))
+write_csv(germination, file.path(out_dir, paste0("Sowing_to_germination_dates_Lock_", yr_tag, ".csv")))   # changed: name now follows the years
 write_csv(germ_by_sow, file.path(out_dir, "Sowing_to_germination_summary_by_sowing_date.csv"))
 
 # ---- 6. Simple illustration: one rule, one year -------------------------------
@@ -360,9 +366,9 @@ p_germ <- ggplot(plot_germ, aes(sow_lookup_date, germ_lookup_date)) +
   geom_line(colour = "#184f95", linewidth = 0.8) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   scale_y_date(date_breaks = "1 month", date_labels = "%b") +
-  facet_wrap(~ year, nrow = 2) +
-  labs(title = paste0("Sowing date and germination date, ", sum_rule, ", Lock 2016-2025"),
-       subtitle = paste0("One panel per year. Sown on (bottom) and germinates on (side). Dotted line = germinates on the day of sowing.\n",
+  facet_wrap(~ year, ncol = 6) +                                            # changed: 29 panels
+  labs(title = paste0("Sowing date and germination date, ", sum_rule, ", Lock ", min(years), "-", max(years)),   # changed
+  subtitle = paste0("One panel per year. Sown on (bottom) and germinates on (side). Dotted line = germinates on the day of sowing.\n",
                          "Flat stretches = sowing dates that all wait for the same rain event. Gaps = no germination before the end of the weather record."),
        x = "Sown on", y = "Germinates on",
        caption = "Germination = first day on or after sowing when the rain total over the last 5 days reaches the trigger (mm).") +
@@ -374,4 +380,4 @@ p_germ <- ggplot(plot_germ, aes(sow_lookup_date, germ_lookup_date)) +
 p_germ
 
 ggsave(file.path(out_dir, paste0("Sowing_to_germination_dates_", str_replace_all(sum_rule, " ", "_"), ".png")), p_germ,
-       width = 26, height = 12, units = "cm", dpi = 300)
+       width = 28, height = 24, units = "cm", dpi = 300)                    # changed: taller for 5 rows
