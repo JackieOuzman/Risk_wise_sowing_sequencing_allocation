@@ -1,6 +1,6 @@
 # =============================================================================
 # Sowing optimiser: yield inputs, no-frost stage
-# Script 05: GERMINATION date -> EMERGENCE date (Lock, 2016-2025)
+# Script 05: GERMINATION date -> EMERGENCE date (Lock, 1997-2025)     
 # Author: Jackie Ouzman        Started: 2026-10-27
 #
 # PURPOSE
@@ -11,7 +11,7 @@
 #   give an emergence date inside Kenton's (20 Mar-10 Jun) and Ed's (8 Apr-17 Jul) range.
 #
 # INPUT
-#   Sowing_to_germination_dates_Lock_2016_2025.csv   (saved by script 04)
+#   #   Sowing_to_germination_dates_Lock_1997_2025.csv   (saved by script 04)     
 #   LOCK_18046.sim                                   (daily max and min temperature)
 #
 # ASSUMPTIONS [to confirm with Kenton / Therese]
@@ -33,11 +33,12 @@ max_days_to_emerge <- 90     # A9
 
 rule_names <- c("Fixed 15 mm", "Heavy soil", "Medium soil", "Light soil")
 main_rule  <- "Fixed 15 mm"  # rule used for the yield lookup in step 6
+yr_tag     <- "1997_2025"    # changed: must match the years tag in the file name saved by script 04
 
 # ---- 1. Read the germination dates (script 04) --------------------------------
-germination <- read_csv(file.path(out_dir, "Sowing_to_germination_dates_Lock_2016_2025.csv"),
+germination <- read_csv(file.path(out_dir, paste0("Sowing_to_germination_dates_Lock_", yr_tag, ".csv")),   # changed
                         show_col_types = FALSE)
-nrow(germination)                                 # 5560 = 4 rules x 10 years x 139 sowing dates
+nrow(germination)                                # 5560 = 4 rules x 10 years x 139 sowing dates
 sum(is.na(germination$germination_date))          # sowings with no germination
 
 # ---- 2. Read the Lock met file (temperature only is needed here) -------------
@@ -157,7 +158,7 @@ sowing_window %>% select(-sow_from_any_year, -sow_to_any_year) %>% print(n = Inf
 # 5e. FOR TRIMMING THE WINDOW: in how many of the 10 years does each sowing date emerge inside
 # each yield table's emergence range? (fortnightly, main rule). Trim to the dates where
 # at least trim_min_years of the 10 years land in range (suggested: 5).
-trim_min_years <- 5
+trim_min_years <- 15     # changed: about half of the 29 years (was 5 of 10)
 window_by_sow %>%
   filter(rule == main_rule,
          sow_md %in% c("02-01", "02-15", "03-01", "03-15", "04-01", "04-15", "05-01", "05-15",
@@ -174,7 +175,7 @@ window_by_sow %>%
             n_dates           = n())
 
 # ---- 6. Save -----------------------------------------------------------------
-write_csv(results,       file.path(out_dir, "Sowing_to_emergence_dates_Lock_2016_2025.csv"))
+write_csv(results,       file.path(out_dir, paste0("Sowing_to_emergence_dates_Lock_", yr_tag, ".csv")))   # changed
 write_csv(emerge_by_sow, file.path(out_dir, "Sowing_to_emergence_summary_by_sowing_date.csv"))
 write_csv(sowing_window %>% select(-sow_from_any_year, -sow_to_any_year),
           file.path(out_dir, "Sowing_window_for_each_yield_table.csv"))
@@ -195,8 +196,8 @@ p_emerge <- ggplot(plot_dates, aes(sow_lookup_date, emergence_lookup_date)) +
   scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") +
   scale_y_date(date_breaks = "2 weeks", date_labels = "%d %b") +
   facet_wrap(~ rule, nrow = 1) +
-  labs(title = "Emergence date for each sowing date, Lock 2016-2025",
-       subtitle = "Each light line is one year, dark line is the median. Dotted line = emergence on the day of sowing. Gaps = no germination or emergence.",
+  labs(title = paste0("Emergence date for each sowing date, Lock ", min(results$year), "-", max(results$year)),   
+       subtitle = "Each light line is one year, dark line is the median.\nDotted line = emergence on the day of sowing. Gaps = no germination or emergence.",   # changed: line break
        x = "Sowing date", y = "Emergence date",
        caption = paste0("Germination from script 04; emergence = germination + ", dd_target,
                         " degree-days (base ", base_temp, " C).")) +
