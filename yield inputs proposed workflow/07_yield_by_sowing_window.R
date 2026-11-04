@@ -108,4 +108,3 @@ write_csv(window_table, file.path(out_dir, paste0("Yield_by_sowing_window_", rul
 write_csv(year_window,  file.path(out_dir, paste0("Yield_by_year_and_window_", rule_slug, ".csv")))
 
 
-

@@ -22,8 +22,32 @@ library(tidyverse)
 out_dir            <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
 plot_rules         <- c("Fixed 15 mm", "Heavy soil", "Medium soil", "Light soil")   # changed: all four rules (use one rule alone to see the year dots)
 out_of_range_label <- "no yield for emergence after 31 Aug"   # changed: label only, must match script 06 (out_of_range_rule "exclude")
-uplift_text        <- "Shotgun wheat yields +5%"               # changed: must match wheat_uplift in script 02b
-crop_to_plot       <- "Wheat"
+
+
+#crop_to_plot       <- "Wheat"
+#crop_to_plot       <- "Barley"
+#crop_to_plot       <- "Mowhawk"
+#crop_to_plot       <- "Canola"
+#crop_to_plot       <- "Beans"
+#crop_to_plot       <- "Lupins"
+#crop_to_plot       <- "Lentils"
+crop_to_plot       <- "Peas"
+
+# changed: the text that goes with each crop (keep in step with scripts 02b, 02d and 06)
+crop_info <- tribble(
+  ~crop,     ~model_label,                ~source_text,        ~uplift_text,                  ~yield_table_range,                                                               ~band_text,                                       ~decile_note,
+  "Wheat",   "Kenton model, Shotgun",     "Kenton's table",    "Shotgun wheat yields +5%",    "20 Mar to 10 Jun, extended to 31 Aug with a broken stick",                       "Extended curve only\n(emerges after 10 Jun)",    "",
+  "Mowhawk", "Kenton model, Mowhawk",     "Kenton's table",    "Mowhawk wheat yields +5%",    "20 Mar to 10 Jun, extended to 31 Aug with a broken stick",                       "Extended curve only\n(emerges after 10 Jun)",    "",
+  "Barley",  "Kenton model, Bigfoot",     "Kenton's table",    "Bigfoot barley: no uplift",   "20 Mar to 10 Jun, extended to 31 Aug with a broken stick",                       "Extended curve only\n(emerges after 10 Jun)",    "",
+  "Canola",  "Ed's seed data, no frost",  "Ed's table",        "No uplift",                   "8 Apr to 17 Jul; extended back to 1 Mar (straight line) and on to 31 Aug (last value held)", "Extended curve only\n(emerges after 17 Jul)", ", used as a stand-in for Ed's yield deciles",
+  "Beans",   "Ed's seed data, no frost",  "Ed's table",        "No uplift",                   "8 Apr to 17 Jul; extended back to 1 Mar (straight line) and on to 31 Aug (last value held)", "Extended curve only\n(emerges after 17 Jul)", ", used as a stand-in for Ed's yield deciles",
+  "Lupins",  "Ed's seed data, no frost",  "Ed's table",        "No uplift",                   "8 Apr to 17 Jul; extended back to 1 Mar (straight line) and on to 31 Aug (last value held)", "Extended curve only\n(emerges after 17 Jul)", ", used as a stand-in for Ed's yield deciles",
+  "Lentils", "Ed's seed data, no frost",  "Ed's table",        "No uplift",                   "8 Apr to 17 Jul; extended back to 1 Mar (straight line) and on to 31 Aug (last value held)", "Extended curve only\n(emerges after 17 Jul)", ", used as a stand-in for Ed's yield deciles",
+  "Peas",    "Ed's seed data, no frost",  "Ed's table",        "No uplift",                   "8 Apr to 17 Jul; extended back to 1 Mar (straight line) and on to 31 Aug (last value held)", "Extended curve only\n(emerges after 17 Jul)", ", used as a stand-in for Ed's yield deciles"
+)
+ci <- filter(crop_info, crop == crop_to_plot)
+stopifnot(nrow(ci) == 1)
+uplift_text <- ci$uplift_text
 window_start       <- as.Date("2026-03-01")  # must match script 07
 window_days        <- 7
 
@@ -33,7 +57,7 @@ rule_cols <- c("Fixed 15 mm" = "#9ecae1", "Heavy soil" = "#c6dbef",
 # text for the plot subtitle (must match scripts 04, 05 and 02)
 dd_target         <- 120                    # degree-days from germination to emergence (script 05)
 base_temp         <- 0                      # base temperature, C (script 05)
-yield_table_range <- "20 Mar to 10 Jun, extended to 31 Aug with a broken stick"   # changed
+yield_table_range <- ci$yield_table_range   # changed: now comes from crop_info above
 rule_text <- c("Fixed 15 mm"  = "15 mm of rain in 5 days",
                "Heavy soil"   = "heavy-soil trigger (25 down to 15 mm in 5 days, by sowing date)",
                "Medium soil"  = "medium-soil trigger (18 down to 10 mm in 5 days, by sowing date)",
@@ -79,7 +103,10 @@ n_labels  <- if (single_rule) geom_text(data = window_tbl, aes(window_mid, y = 0
 p_window <- ggplot() +
   geom_rect(data = no_yield, aes(xmin = window_from, xmax = window_from + window_days, ymin = -Inf, ymax = Inf),
             fill = "grey92") +
-  geom_text(data = no_yield_lab, aes(x, y = Inf, label = "Extended curve only\n(emerges after 10 Jun)"),     # changed
+  geom_text(data = no_yield_lab, aes(x, y = 0, label = ci$band_text),     # changed: bottom of the band, clear of the lines
+            vjust = -0.3, size = 2.8, colour = "grey35") +
+  year_dots +
+  geom_text(data = no_yield_lab, aes(x, y = Inf, label = ci$band_text),     # changed
             vjust = 1.3, size = 2.8, colour = "grey35") +
   year_dots +
   geom_line(data = window_tbl, aes(window_mid, yield_mean, colour = rule, group = rule, linetype = rule), linewidth = 1, na.rm = TRUE) +
@@ -92,14 +119,14 @@ p_window <- ggplot() +
   scale_x_date(date_breaks = "2 weeks", date_labels = "%d %b") +
   scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.08))) +
   
-  labs(title = paste0("Expected ", tolower(crop_to_plot), " yield by sowing date (Kenton model, Shotgun)"),
+  labs(title = paste0("Expected ", tolower(crop_to_plot), " yield by sowing date (", ci$model_label, ")"),     # changed
        subtitle = paste0("Sowing date  >  germination (rain)  >  emergence (heat)  >  yield\n",
-                         "Germination: first day with ", if (single_rule) rule_text[plot_rules] else "the rain trigger of each rule (15 mm fixed, or Kenton's soil triggers that fall through autumn)", ", counting rain from the sowing day\n",   # changed
+                         "Germination: first day with ", if (single_rule) rule_text[plot_rules] else "the rain trigger of each rule (15 mm fixed, or Kenton's soil triggers that fall through autumn)", ",\ncounting rain from the sowing day\n",   # changed
                          "Emergence: ", dd_target, " degree-days after germination (daily mean temperature, base ", base_temp, " C)\n",
-                         "Yield: read from Kenton's table at the emergence date (", yield_table_range, ")\n", uplift_text, "; ", out_of_range_label),   # changed
+                         "Yield: read from ", ci$source_text, " at the emergence date (", yield_table_range, ")\n", uplift_text, "; ", out_of_range_label),
        x = "Sowing date (first day of each 7-day week)", y = "Yield (t/ha)",
        caption = paste0("Line = average across the years of that season type. Dots = individual years (average of the sowing days in that week).\n",
-                        "Small numbers = years behind each average. Each year uses the yield table for its own season type (water supply).\n",
+                        "Small numbers = years behind each average. Each year uses the yield table for its own season type (water supply", ci$decile_note, ").\n",
                         "Lock, 1997-2025 (D10 years, 2022 among them, are left out). Grey band = every year in that week is on the extended curve.")) +     # changed
   
   theme_minimal(base_size = 10) +
@@ -111,7 +138,7 @@ p_window <- ggplot() +
         strip.text = element_text(face = "bold", hjust = 0))
 p_window
 
-ggsave(file.path(out_dir, paste0("Yield_by_sowing_window_plot_", paste(str_replace_all(plot_rules, " ", "_"), collapse = "_and_"), ".png")),
+ggsave(file.path(out_dir, paste0("Yield_by_sowing_window_plot_", crop_to_plot, "_", paste(str_replace_all(plot_rules, " ", "_"), collapse = "_and_"), ".png")),
        p_window, width = 22, height = 18, units = "cm", dpi = 300)
 
 

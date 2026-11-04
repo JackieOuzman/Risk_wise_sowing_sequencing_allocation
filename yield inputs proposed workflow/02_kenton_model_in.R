@@ -482,3 +482,4 @@ p_lines
 
 ggsave(file.path(out_dir, "Yield_heatmap_cereals_and_noncereals.png"),  p_heat,  width = 24, height = 22, units = "cm", dpi = 300)
 ggsave(file.path(out_dir, "Yield_lineplot_cereals_and_noncereals.png"), p_lines, width = 24, height = 13, units = "cm", dpi = 300)
+

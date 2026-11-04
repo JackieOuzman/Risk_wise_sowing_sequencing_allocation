@@ -28,9 +28,8 @@
 #   no_emergence_rule    sowings that never germinate or emerge: "exclude" or "zero"
 #   years_for_each_type  "own" = each year uses its own season type's table (agreed for now)
 #                        "all" = every year is run through every table
-#   wheat_uplift         Kenton wheat yields (Shotgun and Mowhawk) are multiplied by       # changed
-#                        1.10 for D1-3 and D4-6 and 1.20 for D7-9 (meeting with Therese,
-#                        30 Oct 2026). Barley is left as it is.
+#   wheat_uplift         now applied in script 02b: Kenton's Shotgun and Mowhawk are       # changed
+#                        multiplied by 1.05 (flat 5%). Other crops are left as they are.
 #
 # ASSUMPTIONS [to confirm]
 #   Wheat (regular) = Kenton's Shotgun. Between table dates the yield is interpolated in a straight line.
@@ -44,13 +43,13 @@ library(tidyverse)
 # ---- 0. Settings ------------------------------------------------------------
 out_dir     <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
 emerg_file  <- "Sowing_to_emergence_dates_Lock_1997_2025.csv"   # changed
-yield_file  <- "Yield_by_emergence_date_extended.csv"     # changed: from script 02b (extended curves, wheat uplift applied)
+yield_file  <- "Yield_by_emergence_date_extended_all_crops.csv"     # changed: Kenton (02b) and Ed (02d), extended; wheat uplift applied
 season_file <- "Lock_18046_water_supply_season_types.csv"
 
 #use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
 #use_rule            <- "Heavy soil"   
-#use_rule            <- "Medium soil" 
-use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
+use_rule            <- "Medium soil" 
+#use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
 #out_of_range_rule   <- "hold_last"       # "hold_last", "zero" or "exclude"
 out_of_range_rule   <- "exclude"         # changed: the tables now run 1 Mar to 31 Aug (script 02b); emergence outside that has no yield
 no_emergence_rule   <- "exclude"         # "exclude" or "zero"
@@ -68,7 +67,16 @@ season_types <- c("D1-3", "D4-6", "D7-9")
 # one row per crop. To add a crop, add a row (Ed's crops use source_pattern "^Ed").
 crop_settings <- tribble(
   ~crop,   ~cultivar, ~source_pattern, ~yield_source,           ~decile_basis,
-  "Wheat", "Shotgun", "^Kenton",       "Kenton model, Shotgun", "Rainfall (water supply)"
+  #"Wheat", "Shotgun", "^Kenton",       "Kenton model, Shotgun", "Rainfall (water supply)"
+  "Barley",  "Bigfoot", "^Kenton", "Kenton model, Bigfoot",             "Rainfall (water supply)",
+  "Mowhawk", "Mowhawk", "^Kenton", "Kenton model, Mowhawk (+5%)",       "Rainfall (water supply)",
+  "Canola",  "Canola",  "^Ed",     "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles",
+  "Beans",   "Beans",   "^Ed",     "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles",
+  "Lupins",  "Lupins",  "^Ed",     "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles",
+  "Lentils", "Lentils", "^Ed",     "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles",
+  "Peas",    "Peas",    "^Ed",     "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles",
+  "Wheat",   "Shotgun", "^Kenton", "Kenton model, Shotgun (+5%)",       "Rainfall (water supply)"
+
 )
 # e.g. Barley:  "Barley", "Bigfoot", "^Kenton", "Kenton model, Bigfoot", "Rainfall (water supply)"
 # e.g. Canola:  "Canola", "Canola",   "^Ed",    "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles"
@@ -198,6 +206,7 @@ write_csv(yield_by_sowing_date,  file.path(out_dir, paste0("Yield_by_sowing_date
 type_colours <- c("D1-3" = "#9ecae1", "D4-6" = "#4292c6", "D7-9" = "#08519c")
 
 plot_y <- yield_by_sowing_date %>%
+  filter(crop == "Wheat") %>%                       # changed: the check plots show one crop; change to look at another
   mutate(sow_lookup_date = as.Date(paste0("2026-", sow_md)),
          yield_table = factor(yield_table, levels = season_types))
 
@@ -243,3 +252,7 @@ p_n
 
 ggsave(file.path(out_dir, paste0("Yield_by_sowing_date_", rule_slug, ".png")), p_yield, width = 26, height = 11, units = "cm", dpi = 300)
 ggsave(file.path(out_dir, paste0("Years_behind_yield_", rule_slug, ".png")),   p_n,     width = 26, height = 9,  units = "cm", dpi = 300)
+
+
+
+
