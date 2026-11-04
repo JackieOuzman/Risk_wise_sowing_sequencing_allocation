@@ -43,17 +43,22 @@ library(tidyverse)
 # ---- 0. Settings ------------------------------------------------------------
 out_dir     <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
 emerg_file  <- "Sowing_to_emergence_dates_Lock_1997_2025.csv"   # changed
-yield_file  <- "Yield_by_emergence_date_extended_all_crops.csv"     # changed: Kenton (02b) and Ed (02d), extended; wheat uplift applied
+# changed: yield_file is set below, after the zone is chosen
 season_file <- "Lock_18046_water_supply_season_types.csv"
 
-#use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
-#use_rule            <- "Heavy soil"   
-use_rule            <- "Medium soil" 
-#use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
+# changed: run from script 12, the rule and zone come from its loop; run on its own, change the two values after "else"
+use_rule    <- if (exists("driver_rule")) driver_rule else "Fixed 15 mm"
+zone        <- if (exists("driver_zone")) driver_zone else "Green"      # "Green", "Amber" or "Red"
+zone_suffix <- if (zone == "Green") "" else paste0("_", zone)           # Green keeps the file names we already have
+yield_file  <- paste0("Yield_by_emergence_date_extended_all_crops", zone_suffix, ".csv")
+
+
 #out_of_range_rule   <- "hold_last"       # "hold_last", "zero" or "exclude"
 out_of_range_rule   <- "exclude"         # changed: the tables now run 1 Mar to 31 Aug (script 02b); emergence outside that has no yield
 no_emergence_rule   <- "exclude"         # "exclude" or "zero"
 years_for_each_type <- "own"             # "own" or "all"
+
+
 
 # must match script 05
 dd_target <- 120
@@ -81,7 +86,7 @@ crop_settings <- tribble(
 # e.g. Barley:  "Barley", "Bigfoot", "^Kenton", "Kenton model, Bigfoot", "Rainfall (water supply)"
 # e.g. Canola:  "Canola", "Canola",   "^Ed",    "Ed seed data, cols E-G (no frost)", "Rainfall (water supply), stand-in for Ed's yield deciles"
 
-rule_slug <- str_replace_all(use_rule, " ", "_")
+rule_slug <- paste0(str_replace_all(use_rule, " ", "_"), zone_suffix)     # changed: Amber and Red files end in _Amber or _Red
 
 # ---- 1. Read the inputs ------------------------------------------------------
 emerg <- read_csv(file.path(out_dir, emerg_file), show_col_types = FALSE) %>%
@@ -156,6 +161,8 @@ lookup_table <- (if (years_for_each_type == "own") lookup_all %>% filter(yield_t
   select(crop, year, year_season_type, decile_basis, sowing_window, sow_date,
          germination_rule, germination_date, days_sow_to_germ, emergence_rule, emergence_date,
          yield_source, yield_emerg_window, yield_table, yield_uplift, yield_status, yield_t_ha, yield_used)   # changed
+
+lookup_table <- mutate(lookup_table, zone = zone, .before = 1)     # changed: which zone this table is for
 
 # years left out because they have no matching table (e.g. D10)
 setdiff(unique(emerg$year), unique(lookup_table$year))

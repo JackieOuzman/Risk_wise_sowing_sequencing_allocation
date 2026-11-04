@@ -24,16 +24,16 @@ library(tidyverse)
 
 # ---- 0. Settings ------------------------------------------------------------
 out_dir     <- "D:/work/RiskWise/early_sowing/Tool/Jackie_working/yield inputs proposed workflow"
-#use_rule            <- "Fixed 15 mm"     # change to "Light soil", "Medium soil" etc. to relax the rule
-#use_rule            <- "Heavy soil"   
-#use_rule            <- "Medium soil" 
-use_rule            <- "Light soil"      # change to "Light soil", "Medium soil" etc. to relax the rule
+# changed: run from script 12, the rule and zone come from its loop; run on its own, change the two values after "else"
+use_rule    <- if (exists("driver_rule")) driver_rule else "Fixed 15 mm"
+zone        <- if (exists("driver_zone")) driver_zone else "Green"      # "Green", "Amber" or "Red"
+zone_suffix <- if (zone == "Green") "" else paste0("_", zone)           # Green keeps the file names we already have
 
 window_start        <- as.Date("2026-03-01")   # week 1 starts here (placeholder year 2026, as in the yield lookup)
 window_days         <- 7
 keep_partial_window <- FALSE          # TRUE keeps the short final window
 
-rule_slug <- str_replace_all(use_rule, " ", "_")
+rule_slug <- paste0(str_replace_all(use_rule, " ", "_"), zone_suffix)     # changed: Amber and Red files end in _Amber or _Red
 
 # ---- 1. Read the daily lookup table and give each sowing day a window --------
 lookup <- read_csv(file.path(out_dir, paste0("Yield_lookup_table_", rule_slug, ".csv")), show_col_types = FALSE)
@@ -104,6 +104,8 @@ year_window %>% filter(year == 2017, window_no == 1) %>% select(year, window_lab
 window_table %>% count(season_type)
 
 # ---- 5. Save -----------------------------------------------------------------
+window_table <- mutate(window_table, zone = zone, .before = 1)     # changed: each file says which zone it is
+year_window  <- mutate(year_window,  zone = zone, .before = 1)
 write_csv(window_table, file.path(out_dir, paste0("Yield_by_sowing_window_", rule_slug, ".csv")))
 write_csv(year_window,  file.path(out_dir, paste0("Yield_by_year_and_window_", rule_slug, ".csv")))
 

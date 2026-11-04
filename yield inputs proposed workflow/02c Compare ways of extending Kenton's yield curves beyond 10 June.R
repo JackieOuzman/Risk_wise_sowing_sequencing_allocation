@@ -77,23 +77,23 @@ curves_ext <- curves %>%
 
 # ---- 4. Checks ----------------------------------------------------------------
 # 4a. Yield on three dates beyond the table, by method (Kenton's original yields, before any uplift)
-curves_ext %>%
+tab_4a <- curves_ext %>%                       # changed: saved as tab_4a
   filter(part == "extension", emergence_date %in% as.Date(c("2026-06-30", "2026-07-15", "2026-08-31"))) %>%
   mutate(date = format(emergence_date, "%d %b"), yield_t_ha = round(yield_t_ha, 2)) %>%
   select(crop_or_cultivar, season_type, date, method, yield_t_ha) %>%
   pivot_wider(names_from = method, values_from = yield_t_ha) %>%
-  arrange(crop_or_cultivar, season_type, match(date, c("30 Jun", "15 Jul", "31 Aug"))) %>%
-  print(n = Inf)
+  arrange(crop_or_cultivar, season_type, match(date, c("30 Jun", "15 Jul", "31 Aug")))
+tab_4a %>% print(n = Inf)
 
 # 4b. How closely does each fitted curve follow Kenton's own table points? (RMSE, t/ha; smaller = closer)
-curves_ext %>%
+tab_4b <- curves_ext %>%                       # changed: saved as tab_4b
   filter(part == "fitted to the table") %>%
   inner_join(curves %>% select(crop_or_cultivar, season_type, x, observed = yield_t_ha),
              by = c("crop_or_cultivar", "season_type", "x")) %>%
   group_by(crop_or_cultivar, season_type, method) %>%
   summarise(rmse = round(sqrt(mean((yield_t_ha - observed)^2)), 3), .groups = "drop") %>%
-  pivot_wider(names_from = method, values_from = rmse) %>%
-  print(n = Inf)
+  pivot_wider(names_from = method, values_from = rmse)
+tab_4b %>% print(n = Inf)
 
 # ---- 5. Plot: Kenton's table (black dots) and the three curves --------------------
 p_cmp <- ggplot() +
@@ -114,3 +114,7 @@ p_cmp
 
 ggsave(file.path(out_dir, "Yield_extension_methods_compared.png"), p_cmp,
        width = 28, height = 20, units = "cm", dpi = 300)
+
+
+write_csv(tab_4a, file.path(out_dir, "Table_4a_extension_methods_yield.csv"))
+write_csv(tab_4b, file.path(out_dir, "Table_4b_extension_methods_fit.csv"))
